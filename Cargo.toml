@@ -72,7 +72,7 @@ tokio = { version = "1.53.3", features = ["rt"] }
 # The example service: its web framework and its broker client. No library crate depends on
 # either.
 axum = { version = "0.8.9", default-features = false }
-async-nats = { version = "0.52.0" }
+async-nats = { version = "0.53.0" }
 futures-util = { version = "0.3.34", default-features = false, features = ["std"] }
 
 # Tests: an OpenTelemetry Collector and a NATS server per test, in Docker.
