@@ -1,0 +1,28 @@
+[package]
+name = "sisa-telemetry-example-axum-service"
+description = "A service with traces, metrics and logs, and a NATS message whose consumer links to its producer"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+sisa-telemetry = { workspace = true }
+
+# The server, its runtime, and Ctrl-C and SIGTERM.
+axum = { workspace = true, features = ["tokio", "http1", "json"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net", "signal"] }
+# The broker, and the stream of messages a subscription gives.
+async-nats = { workspace = true }
+futures-util = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+sisa-telemetry = { workspace = true, features = ["testing"] }
+tokio = { workspace = true, features = ["time"] }
+# A NATS server for the test.
+testcontainers = { workspace = true }
