@@ -1,0 +1,23 @@
+[package]
+name = "sisa-telemetry-core"
+description = "The API-only part of Sisa Telemetry for library crates: trace headers across messages and HTTP, error recording, metric helpers and shared attribute names"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords = ["opentelemetry", "tracing", "telemetry", "observability", "propagation"]
+categories = ["development-tools::debugging", "asynchronous"]
+
+[lints]
+workspace = true
+
+[dependencies]
+# The OpenTelemetry API only: no SDK and no exporter. This crate pins its version for the
+# libraries that depend on it.
+opentelemetry = { workspace = true }
+# The spans the helpers take, and the bridge that reaches their OpenTelemetry context.
+tracing = { workspace = true }
+tracing-opentelemetry = { workspace = true }

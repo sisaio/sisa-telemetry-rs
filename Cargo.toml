@@ -1,0 +1,99 @@
+# The two library crates and the example service.
+[workspace]
+members = ["crates/*", "examples/*"]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+authors = ["Sang Au <auvansang@outlook.com>"]
+edition = "2024"
+rust-version = "1.89"
+license = "MIT"
+repository = "https://github.com/sisaio/sisa-telemetry-rs"
+readme = "README.md"
+
+# Lints every package takes, through its `[lints] workspace = true`, for all its targets: library,
+# tests, benches and examples. The same block is in every sisaio crate repository.
+#
+# No unsafe code, and every public item has docs and a `Debug` implementation.
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_debug_implementations = "warn"
+missing_docs = "warn"
+
+# A name means one thing in its scope: a new binding may reuse one only for the same value
+# converted, such as `let name = name.into()`. Names are whole words, so no name is a single
+# letter. Library code returns errors: no `unwrap` outside tests (clippy.toml allows it there), and
+# no `dbg!` or `todo!` left behind.
+[workspace.lints.clippy]
+shadow_unrelated = "warn"
+min_ident_chars = "warn"
+unwrap_used = "warn"
+dbg_macro = "warn"
+todo = "warn"
+
+[workspace.dependencies]
+# The library crates, at the coordinated version.
+sisa-telemetry = { path = "crates/sisa-telemetry", version = "0.1.0" }
+sisa-telemetry-core = { path = "crates/core", version = "0.1.0" }
+
+# The instrumentation API: services and libraries write spans and events with `tracing`.
+tracing = { version = "0.1.44" }
+# The fmt layer for JSON or pretty logs on stdout, and the filter from `log.filter`.
+tracing-subscriber = { version = "0.3.23", default-features = false, features = ["std", "registry", "fmt", "ansi", "json", "env-filter"] }
+
+# OpenTelemetry. The first-party crates release together and must share one minor version, and
+# `tracing-opentelemetry` pairs with it: 0.34 goes with `opentelemetry` 0.33. An upgrade moves all
+# of them in one change (docs/architecture.md#version-alignment).
+#
+# The API, which is all the core depends on: traces, metrics and propagation.
+opentelemetry = { version = "0.33.1", default-features = false, features = ["trace", "metrics"] }
+# Turns `tracing` spans into OpenTelemetry spans, and reaches a span's OpenTelemetry context.
+tracing-opentelemetry = { version = "0.34.0", default-features = false }
+# The SDK: providers, samplers, the batch span processor, the periodic metric reader and the W3C
+# propagators. Only `sisa-telemetry` depends on it.
+opentelemetry_sdk = { version = "0.33.1", default-features = false, features = ["trace", "metrics"] }
+# The OTLP exporters, over gRPC (tonic) and HTTP with protobuf (a blocking reqwest client, which
+# the SDK's own export threads need), with TLS for `https` endpoints.
+opentelemetry-otlp = { version = "0.33.1", default-features = false, features = ["trace", "metrics", "grpc-tonic", "http-proto", "reqwest-blocking-client", "internal-logs"] }
+# Header names and values, for the OTLP headers sent over gRPC.
+http = { version = "1.3.1" }
+
+# Error types: the mechanical `Display` and `Error` implementations.
+thiserror = { version = "2.0.21" }
+# The settings, read from a `[telemetry]` section of a config file.
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = { version = "1.0.154" }
+
+# `init` checks for the runtime the gRPC exporter needs. Tests and the example add `macros` for
+# `#[tokio::test]` and `#[tokio::main]`.
+tokio = { version = "1.53.3", features = ["rt"] }
+
+# The example service: its web framework and its broker client. No library crate depends on
+# either.
+axum = { version = "0.8.9", default-features = false }
+async-nats = { version = "0.52.0" }
+futures-util = { version = "0.3.34", default-features = false, features = ["std"] }
+
+# Tests: an OpenTelemetry Collector and a NATS server per test, in Docker.
+testcontainers = { version = "0.28.0", default-features = false }
+
+# Development and test builds keep line tables for backtraces but no full debug information, and
+# dependencies carry none, which shortens builds and links. This follows the Cargo book's
+# "Optimizing Build Performance" guide. `cargo test` uses this profile too.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
+# A debugger session needs full debug information: `cargo build --profile debugging`.
+[profile.debugging]
+inherits = "dev"
+debug = true
+
+# Release builds keep Cargo's defaults, which applications also get, so measurements stay
+# representative. Profilers need line tables: `cargo build --profile profiling`.
+[profile.profiling]
+inherits = "release"
+debug = "line-tables-only"
