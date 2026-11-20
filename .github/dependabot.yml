@@ -1,0 +1,35 @@
+# Weekly version updates for Cargo and the SHA-pinned actions.
+# Patch and minor updates are grouped per ecosystem, and major updates stay separate.
+# Dependabot doesn't update the images in ci.yml and the tests: `nats:2-alpine` follows its major
+# version by itself, and the Collector image is pinned and bumped by hand. The OpenTelemetry
+# crates move together, in one PR of their own (docs/architecture.md#version-alignment).
+# Commit titles start with `build(deps)`, and PRs carry only the `type:deps` label, not
+# Dependabot's per-ecosystem ones.
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: build(deps)
+    labels: ["type:deps"]
+    groups:
+      # First, so these never land one at a time: every OpenTelemetry crate shares one minor.
+      opentelemetry:
+        patterns: ["opentelemetry*", "tracing-opentelemetry"]
+      cargo-minor-and-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: build(deps)
+    labels: ["type:deps"]
+    groups:
+      actions-minor-and-patch:
+        update-types: [minor, patch]

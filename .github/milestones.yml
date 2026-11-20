@@ -1,0 +1,13 @@
+# The repository's milestones. .github/workflows/repo-settings.yml syncs GitHub with this file on
+# each push to main that changes it, so edit here, not on GitHub. The readable version is ROADMAP.md.
+#
+# A milestone is a release: it stays open until that release is published. Each is
+# { title, description } and, optionally, `due_on` (YYYY-MM-DD, the target date) and
+# `state: closed` once its release is out. A milestone that exists keeps its number and its issues;
+# one taken out of this file is left as it is on GitHub.
+
+- { title: "0.1.0", description: "First release on crates.io: the core (propagation, record_error, the metric helpers, the attribute names) and sisa-telemetry (init with JSON or pretty logs, OTLP traces and metrics, W3C propagators, the guard, the testing feature)." }
+- { title: "0.2.0", description: "The metric catalog and its test, the HTTP helpers (a reqwest middleware and an axum layer), and the Prometheus option." }
+- { title: "0.3.0", description: "OTLP logs, changing the log filter at runtime, and the sisa-context fields on every event." }
+- { title: "0.4.0", description: "Dashboards, SLO and alert rules, and a reference Collector configuration." }
+- { title: "1.0.0", description: "The stable API, once OpenTelemetry Rust tracing leaves beta." }
