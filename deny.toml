@@ -1,0 +1,41 @@
+# The dependency policy that `cargo deny check` enforces: advisories, licenses, bans, and sources.
+# Adding a license, an advisory exception, or a source needs a reviewed reason beside it.
+#
+# Every sisaio crate repository starts from the same file: the same sections and settings, an
+# advisory exception as `{ id, reason }` under a comment that says when to drop it, and the base
+# licenses Apache-2.0, BSD-3-Clause, ISC, MIT, Unicode-3.0 and Zlib. A license beyond those is this
+# repository's own and says which dependency needs it.
+
+[graph]
+all-features = true
+
+[advisories]
+version = 2
+yanked = "deny"
+ignore = [
+  # astral-tokio-tar is unmaintained. Only the tests reach it, through testcontainers. Drop this
+  # once testcontainers moves off it.
+  { id = "RUSTSEC-2026-0440", reason = "test-only, through testcontainers" },
+]
+
+[licenses]
+version = 2
+confidence-threshold = 0.9
+allow = [
+  "Apache-2.0",
+  "BSD-3-Clause",
+  "ISC",
+  "MIT",
+  "Unicode-3.0",
+  "Zlib",
+]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
