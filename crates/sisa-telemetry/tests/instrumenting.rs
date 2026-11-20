@@ -94,6 +94,26 @@ fn a_duration_histogram_has_the_standard_buckets() {
     assert_eq!(point.bounds.len(), 14);
 }
 
+// The cardinality limit: past 2000 attribute sets, new ones share one overflow point.
+#[test]
+fn attribute_sets_past_the_limit_fold_into_one_overflow_point() {
+    let captured = testing::capture();
+    let counter = METER.u64_counter("orders.by_customer").build();
+
+    for customer in 0..2500_i64 {
+        counter.add(1, &[KeyValue::new("customer.id", customer)]);
+    }
+
+    let metric = captured.metric("orders.by_customer").unwrap();
+    let overflow = |point: &&testing::CapturedPoint| {
+        let mut keys = point.attributes.iter().map(|each| each.key.as_str());
+        keys.any(|key| key == "otel.metric.overflow")
+    };
+    assert_eq!(metric.total(), 2500.0);
+    assert!(metric.points.len() <= 2001);
+    assert_eq!(metric.points.iter().filter(overflow).count(), 1);
+}
+
 #[test]
 fn a_metric_nobody_recorded_is_missing() {
     let captured = testing::capture();
