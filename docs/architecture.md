@@ -69,29 +69,54 @@ of defense.
 
 ## Guarantees and limits
 
-- **Telemetry never takes the service down.** Recording a span or a metric never returns an
-  error and never waits on the network: spans go to a bounded queue that a separate thread
-  exports, and metrics are read on a timer. With the Collector down, the queue drops what
-  doesn't fit, the exporters log each failure, and the logs on stdout keep flowing.
-- **`init` succeeds while the Collector is down.** The exporters connect when they first send.
+- **Recording never fails and never waits on the network.** Ending a span hands it to the SDK's
+  batch span processor with a `try_send` into a queue of 2048 spans (`OTEL_BSP_MAX_QUEUE_SIZE`),
+  which a thread of its own exports every 5 seconds or 512 spans. Recording a metric updates
+  memory only, and another thread exports every `metrics.interval`.
+- **A full queue drops spans.** While the Collector is down or slow, spans past the 2048 are
+  dropped: the span that is ending is the one that doesn't get in. The SDK logs the first drop
+  and the total at shutdown, not each one.
+  Metrics aren't dropped: they are running totals, so the next export that succeeds carries
+  them.
+- **A failed export is a log line, not an error in the service.** The gRPC exporter retries, then
+  the SDK logs the failure at `ERROR` through `tracing`, once per failed batch, so a Collector
+  that stays down logs on every export. Nothing counts these yet; a
+  `sisa.telemetry.export_failures` counter is on the [roadmap](../ROADMAP.md#not-in-010).
+- **Logs on stdout don't depend on the export.** They are written by the fmt layer on the thread
+  that logs, and block as any write to stdout does.
+- **Only `tracing` events are logged.** `init` installs no bridge from the `log` crate, so a
+  dependency that logs through `log` alone prints nothing.
+- **`init` succeeds while the Collector is down.** Building an exporter opens no connection; the
+  first export does. Tested over gRPC by running the example with no Collector.
 - **Without `init`, the core does nothing.** `inject` writes no header, `link_from` and
   `continue_from` set nothing, instruments record into nothing, and nothing panics: a library
   works the same with telemetry off.
-- **`init` runs once per process.** A second call fails with `AlreadyInitialized` and changes
-  nothing.
-- **A dropped guard still flushes**, waiting up to 5 seconds; `shutdown(budget)` picks the wait.
-  In this OpenTelemetry release the budget bounds the trace flush only: the metric provider's
-  shutdown ignores the timeout it is given.
-- **An instrument created before `init` is a no-op for the life of the process.** `init` comes
-  first in `main`, and `testing::capture()` first in a test.
-- **A span's parent can't change once the span has started.** `link_from` and `continue_from`
-  are called before the span is entered; later they log a warning and change nothing.
-- **Past `metrics.cardinality_limit` attribute sets**, 2000 by default, the SDK folds an
-  instrument's new sets into one overflow series.
+- **`init` runs once per process.** A second call fails with `AlreadyInitialized`, after it has
+  built and dropped a second set of exporters, and changes nothing that is installed.
+- **`shutdown(budget)` can take the budget plus 5 seconds.** The budget is how long it waits for
+  the span queue to flush. The metric provider's shutdown ignores the timeout it is given in
+  this OpenTelemetry release and waits up to a fixed 5 seconds for one last export. What isn't
+  sent by then is lost, and `shutdown` returns `Shutdown`. A dropped guard does the same with a
+  budget of 5 seconds, so a drop can block for up to 10.
+- **An instrument created before `init` is a no-op for the life of the process**, with no error
+  and no log line. `init` comes first in `main`, and `testing::capture()` first in a test.
+- **A span's parent can't change once the span has started**, which entering it or calling
+  `inject` on it does. `link_from` and `continue_from` then log a warning and leave the span as
+  it was: no parent, no link.
+- **Sampling follows the caller by default.** With `parentbased_traceidratio`, a span continued
+  from a caller that didn't sample its trace isn't exported, whatever `traces.ratio` is.
+- **Past `metrics.cardinality_limit` attribute sets**, 2000 by default, an instrument's new sets
+  share one point with the attribute `otel.metric.overflow`: the total stays right and the
+  attributes of the extra sets are lost.
 - **No TLS in 0.1.0.** The exporters are built without it, which suits a Collector beside the
-  service. An `https` endpoint doesn't work: over gRPC, `init` fails with `Exporter`.
+  service. Over gRPC, an `https` endpoint fails `init` with `Exporter`. Over HTTP it is
+  untested, and expected to fail at each export rather than at `init`.
 - **gRPC needs a Tokio runtime.** `init` with the gRPC protocol, the default, fails with
-  `NoRuntime` outside one.
+  `NoRuntime` outside one. The exports then run on that runtime, so they stop when it does.
+- **An `OTEL_*` variable with a value the SDK can't use doesn't fall back to the setting.**
+  `init` skips its own setting whenever the variable is set, and the SDK then uses its own
+  default: `parentbased_always_on` for an unknown `OTEL_TRACES_SAMPLER`, 60 seconds for an
+  `OTEL_METRIC_EXPORT_INTERVAL` that isn't a number.
 
 ## Rules that hold the design together
 
@@ -113,11 +138,13 @@ of defense.
    or gRPC server span is the caller's child.
 7. **Unbounded values stay off metrics.** Ids and URLs with ids go on spans and logs. A metric
    attribute takes a small fixed set of values.
-8. **The environment wins.** A standard `OTEL_*` variable wins over the setting it matches, so
-   an operator can redirect a service without a new build.
+8. **The environment wins.** A standard `OTEL_*` variable that is set and not empty wins over
+   the setting it matches, so an operator can redirect a service without a new build.
+   [Formats](formats.md#settings) lists which variable matches which setting; a setting with no
+   variable there has none.
 9. **Secrets never show.** A header value from `otlp.headers` reaches no log line, no error and
    no `Debug` output.
-10. **Logs go to stdout whatever happens to the export**
+10. **Logs go to stdout, on a path that doesn't touch the exporters**
     ([ADR-0003](adr/0003-logs-as-json-on-stdout.md)).
 
 Rules for the spans and metrics a service writes itself are in the

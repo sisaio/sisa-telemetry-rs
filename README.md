@@ -70,8 +70,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-By default this exports over gRPC to a Collector at `http://localhost:4317`, samples every trace,
-pushes metrics every 30 seconds and prints JSON logs at `info`. The settings deserialize from a
+By default this exports over gRPC, without TLS, to a Collector at `http://localhost:4317`, keeps
+every trace that starts here, pushes metrics every 30 seconds and prints JSON logs at `info`.
+While the Collector is down the service keeps running: spans past the export queue are dropped
+and each failed export is a log line. The settings deserialize from a
 `[telemetry]` section of a config file, and the standard `OTEL_*` environment variables win over
 them; [docs/formats.md](https://github.com/sisaio/sisa-telemetry-rs/blob/main/docs/formats.md#settings)
 lists every key.

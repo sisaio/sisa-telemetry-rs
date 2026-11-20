@@ -241,8 +241,11 @@ where
     }
 }
 
-/// Keeps telemetry running. Flushes and shuts down the providers on drop, or within a budget
-/// with [`shutdown`](Self::shutdown).
+/// Keeps telemetry running. Flushes and shuts down the providers on drop, or with
+/// [`shutdown`](Self::shutdown), which picks how long to wait for the spans.
+///
+/// A drop waits up to 5 seconds for the span queue and up to 5 more for the last metric export,
+/// on the thread that drops it.
 ///
 /// Hold it until the end of `main`: dropping it earlier stops the export.
 #[derive(Debug)]
@@ -253,17 +256,21 @@ pub struct TelemetryGuard {
 }
 
 impl TelemetryGuard {
-    /// Flushes what the providers still hold and shuts them down, waiting up to `budget`. Call
-    /// it after the servers have stopped and before the pools close.
+    /// Flushes what the providers still hold and shuts them down. Call it after the servers
+    /// have stopped and before the pools close.
     ///
-    /// It blocks the calling thread while the last export is sent. With the gRPC exporter that
-    /// export runs on the Tokio runtime, so on a current-thread runtime call it from
-    /// `tokio::task::spawn_blocking`.
+    /// `budget` is how long it waits for the span queue to be sent. The last metric export then
+    /// gets up to 5 seconds whatever the budget is: the SDK's meter provider ignores the timeout
+    /// it is given. So the call can take `budget` plus 5 seconds.
+    ///
+    /// It blocks the calling thread. With the gRPC exporter the last export runs on the Tokio
+    /// runtime, which a multi-thread runtime does on another thread; on a current-thread
+    /// runtime, call it from `tokio::task::spawn_blocking`.
     ///
     /// # Errors
     ///
-    /// [`TelemetryError::Shutdown`] when a provider didn't finish within the budget, as when the
-    /// Collector is down; what it still held is lost.
+    /// [`TelemetryError::Shutdown`] when a provider reports that its shutdown failed or timed
+    /// out, as when the Collector is down; what it still held is lost.
     pub fn shutdown(mut self, budget: Duration) -> Result<(), TelemetryError> {
         self.close(budget)
     }
@@ -335,8 +342,9 @@ impl Drop for TelemetryGuard {
 /// [`Header`](TelemetryError::Header), [`Protocol`](TelemetryError::Protocol),
 /// [`Exporter`](TelemetryError::Exporter)), the gRPC protocol outside a Tokio runtime
 /// ([`NoRuntime`](TelemetryError::NoRuntime)), or a second call
-/// ([`AlreadyInitialized`](TelemetryError::AlreadyInitialized)). A Collector that is down is not
-/// an error: the exporters connect when they first send.
+/// ([`AlreadyInitialized`](TelemetryError::AlreadyInitialized)). Nothing is installed when it
+/// fails. A Collector that is down is not an error: the exporters connect when they first send,
+/// and a failed export is a log line from the `opentelemetry` crates.
 pub fn init(
     settings: &TelemetrySettings,
     resource: ServiceResource,

@@ -101,20 +101,22 @@ emitted metric against it, come in 0.2.0.
 ## Settings
 
 `TelemetrySettings` deserializes from a `[telemetry]` section; a key left out keeps its default.
-A standard `OTEL_*` environment variable, when set and not empty, wins over the key beside it.
+A standard `OTEL_*` environment variable, when set and not empty, wins over the key beside it,
+even when its value is one the SDK can't use: the SDK then falls back to its own default, not to
+the key.
 
 | Key | Default | Meaning | Environment variable that wins |
 | --- | --- | --- | --- |
 | `enabled` | `true` | Off leaves the logs on stdout only: no provider, no propagator, no exporter | |
 | `otlp.endpoint` | `http://localhost:4317` for gRPC, `http://localhost:4318` for HTTP | The Collector's base URL, usually a sidecar or a DaemonSet. Over HTTP, `/v1/traces` and `/v1/metrics` are added to it | `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` |
 | `otlp.protocol` | `grpc` | `grpc` or `http/protobuf` | `OTEL_EXPORTER_OTLP_PROTOCOL` |
-| `otlp.headers` | none | Headers on every export, for a backend's API key. Their values are secret | `OTEL_EXPORTER_OTLP_HEADERS` adds to them, and wins for a name in both |
+| `otlp.headers` | none | Headers on every export, for a backend's API key. Their values are secret | `OTEL_EXPORTER_OTLP_HEADERS` adds to them. Set a name in one place only: for a name in both, the HTTP exporter sends the variable's value, and what the gRPC one sends isn't checked |
 | `traces.sampler` | `parentbased_traceidratio` | `always_on`, `always_off`, `traceidratio`, `parentbased_always_on`, `parentbased_always_off` or `parentbased_traceidratio`. The default respects the caller's decision and samples new traces by ratio | `OTEL_TRACES_SAMPLER`, with `OTEL_TRACES_SAMPLER_ARG` |
-| `traces.ratio` | `1.0` | The share of traces the ratio samplers keep. Set about `0.1` in production, and use the Collector's tail sampling to keep every error and slow trace | `OTEL_TRACES_SAMPLER_ARG`, when `OTEL_TRACES_SAMPLER` is set |
+| `traces.ratio` | `1.0` | The share of traces the ratio samplers keep; below 0 keeps none and above 1 keeps all. Set about `0.1` in production, and use the Collector's tail sampling to keep every error and slow trace | `OTEL_TRACES_SAMPLER_ARG`, when `OTEL_TRACES_SAMPLER` is set |
 | `metrics.interval` | `30s` | How often metrics are pushed: a whole number and `ms`, `s`, `m` or `h` | `OTEL_METRIC_EXPORT_INTERVAL`, in milliseconds |
-| `metrics.cardinality_limit` | `2000` | The most attribute sets one instrument keeps; the SDK folds the rest into an overflow series | |
+| `metrics.cardinality_limit` | `2000` | The most attribute sets one instrument keeps; the rest share one point with the attribute `otel.metric.overflow` | |
 | `log.format` | `json` | `json`, or `pretty` for development | |
-| `log.filter` | `info,sqlx=warn,hyper=warn` | `EnvFilter` syntax: a default level, then `target=level` pairs. It filters the traces too | |
+| `log.filter` | `info,sqlx=warn,hyper=warn` | `EnvFilter` syntax: a default level, then `target=level` pairs. It filters the traces too: a span below its level is never created. `RUST_LOG` is not read | |
 | `resource.attributes` | none | Extra resource attributes, such as the cluster and the region | `OTEL_RESOURCE_ATTRIBUTES`, key by key |
 
 ```toml

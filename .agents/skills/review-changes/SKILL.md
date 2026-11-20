@@ -88,6 +88,8 @@ the same shape anywhere in a change.
 | Baggage carries on into a consumer's trace | `baggage_carries_on_into_the_consumers_trace` |
 | `record_error` fails the span with the source chain | `record_error_fails_the_span_with_the_source_chain` |
 | A duration histogram is in seconds, 5 ms to 10 s | `a_duration_histogram_has_the_standard_buckets` |
+| Past the cardinality limit, new attribute sets share one overflow point | `attribute_sets_past_the_limit_fold_into_one_overflow_point` |
+| A span that has started takes no parent and no link | `a_span_that_has_started_keeps_its_parent` |
 | The `OTEL_*` variables win over the settings | `the_protocol_variable_wins_over_the_settings`, `an_endpoint_variable_wins_over_the_settings`, `the_sampler_variable_wins_over_the_settings` |
 | A header value never shows | `debug_hides_header_values`, `a_header_that_cannot_be_sent_is_named_without_its_value` |
 | The exporters' own spans stay out of the traces | `the_exporters_own_spans_stay_out_of_the_traces` |
@@ -101,7 +103,8 @@ the same shape anywhere in a change.
 - `cargo +1.89 check` can fail where stable passes. Read the exit code, not a piped tail.
 - Tests can't set environment variables: the workspace forbids unsafe code. The code that reads
   one takes the lookup as a parameter.
-- Not bugs, by design: `link_from` makes its span a root even when the headers carry no trace;
+- Not bugs, by design: `link_from` makes its span a root even when the headers carry no trace,
+  and adds no link to a span that has started;
   `continue_from` leaves the span alone then; `record_error` writes no log line; `init` succeeds
   while the Collector is down.
 

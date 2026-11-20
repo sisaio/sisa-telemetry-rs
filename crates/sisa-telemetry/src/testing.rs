@@ -239,8 +239,9 @@ fn install() -> Captured {
 /// Installs in-memory exporters once per test binary and returns a handle to read them.
 ///
 /// The first call installs the global `tracing` subscriber, the tracer and meter providers and
-/// the W3C propagators, as [`init`](crate::init) does, with every span sampled and nothing
-/// exported; later calls return the same handle.
+/// the W3C propagators, as [`init`](crate::init) does, with nothing exported and no log
+/// filter; later calls return the same handle. Every new trace is kept; a span continued from
+/// headers that say "not sampled" is not, as with the default sampler.
 ///
 /// # Panics
 ///
