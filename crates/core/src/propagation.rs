@@ -6,8 +6,9 @@
 //! `sisa_telemetry::init` installs the W3C propagators, and without it nothing is written or
 //! read.
 //!
-//! Call [`link_from`] and [`continue_from`] on a span before it is entered: once a span has
-//! started, its parent can't change.
+//! Call [`link_from`] and [`continue_from`] on a span before it is entered, and before
+//! [`inject`] is called on it: once a span has started, its parent can't change, and both then
+//! log a warning and leave the span as it was.
 //!
 //! Baggage crosses process boundaries in clear text: never put secrets or personal data in it.
 
@@ -27,16 +28,18 @@ fn extract(headers: &dyn Extractor) -> Context {
     })
 }
 
-// Without `init` there is no OpenTelemetry layer, and a span the filter turned off has no data:
-// neither is worth a log line. A span that has started keeps its parent, which is a mistake in
-// the calling code.
-fn set_parent(span: &tracing::Span, parent: Context) {
-    if let Err(SetParentError::AlreadyStarted) = span.set_parent(parent) {
+// Whether the span can still take a parent. Without `init` there is no OpenTelemetry layer, and
+// a span the filter turned off has no data: neither is worth a log line. A span that has started
+// keeps its parent, which is a mistake in the calling code, so that one is logged.
+fn set_parent(span: &tracing::Span, parent: Context) -> bool {
+    let started = matches!(span.set_parent(parent), Err(SetParentError::AlreadyStarted));
+    if started {
         tracing::warn!(
             "the span had already started, so its trace context was not set: call link_from or \
              continue_from before entering the span"
         );
     }
+    !started
 }
 
 /// Producer and client side: writes the trace context of `span` (`traceparent`, `tracestate`,
@@ -63,7 +66,10 @@ pub fn inject(span: &tracing::Span, headers: &mut dyn Injector) {
 ///
 /// A message can wait in a queue for hours, and a parent and child would make a trace that long.
 /// The baggage in the headers carries on into the new trace. Headers with no trace context add
-/// no link.
+/// no link, and the span is still the root of a new trace, whatever span is current.
+///
+/// On a span that has started it logs a warning and adds nothing: the span keeps its parent
+/// and gets no link.
 pub fn link_from(span: &tracing::Span, headers: &dyn Extractor) {
     let producer = extract(headers);
     let producer_span = producer.span().span_context().clone();
@@ -72,17 +78,21 @@ pub fn link_from(span: &tracing::Span, headers: &dyn Extractor) {
     let baggage = producer.baggage().iter().map(|(key, (value, metadata))| {
         KeyValueMetadata::new(key.clone(), value.clone(), metadata.clone())
     });
-    set_parent(span, Context::new().with_baggage(baggage));
-    span.add_link(producer_span);
+    if set_parent(span, Context::new().with_baggage(baggage)) {
+        span.add_link(producer_span);
+    }
 }
 
 /// Server side (HTTP, gRPC): the caller's span becomes the parent of `span`.
 ///
-/// Headers with no trace context leave the span as it is.
+/// Headers with no trace context leave the span as it is, a child of the current span if there
+/// is one. So does a span that has started, with a warning. The caller's sampling decision
+/// comes with its span: under the default sampler, a caller that didn't sample its trace means
+/// this span isn't exported either.
 pub fn continue_from(span: &tracing::Span, headers: &dyn Extractor) {
     let caller = extract(headers);
     if caller.span().span_context().is_valid() {
-        set_parent(span, caller);
+        _ = set_parent(span, caller);
     }
 }
 

@@ -109,10 +109,12 @@ fn a_span_that_has_started_keeps_its_parent() {
 
     let entered = tracing::info_span!("late_handle");
     entered.in_scope(|| propagation::continue_from(&entered, &headers));
+    entered.in_scope(|| propagation::link_from(&entered, &headers));
     drop(entered);
 
     let server = captured.span("late_handle").unwrap();
     assert_eq!(server.parent_span_id, SpanId::INVALID);
+    assert!(server.links.is_empty());
 }
 
 #[derive(Debug)]
