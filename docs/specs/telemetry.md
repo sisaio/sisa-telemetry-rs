@@ -44,7 +44,7 @@ pub mod testing {
 | `TelemetrySettings` and `OtlpSettings`, `TracesSettings`, `MetricsSettings`, `LogSettings`, `ResourceSettings` | The `[telemetry]` section of a config file, as [Formats](../formats.md#settings) lists it. All deserialize, all have defaults, all are `#[non_exhaustive]` |
 | `OtlpProtocol`, `TracesSampler`, `LogFormat` | The values of `otlp.protocol`, `traces.sampler` and `log.format` |
 | `ServiceResource` | The service's name and version, and optionally its namespace, environment and extra attributes |
-| `TelemetryGuard` | Flushes and shuts the providers down on drop, or within a budget with `shutdown` |
+| `TelemetryGuard` | Flushes and shuts the providers down on drop, or with `shutdown(budget)`, where the budget bounds the wait for the spans |
 | `TelemetryError` | Why `init` or `shutdown` failed |
 | Feature `testing`: `testing::capture`, `Captured`, `CapturedMetric`, `CapturedPoint`, `SpanData` | In-memory exporters for tests, as a dev-dependency |
 
@@ -77,14 +77,24 @@ An HTTP exporter takes an endpoint given in code as it is, so `init` adds `/v1/t
 `/v1/metrics` to `otlp.endpoint`. The headers go out as gRPC metadata, marked sensitive, or as
 HTTP headers.
 
-`TelemetryGuard::shutdown(budget)` shuts the tracer provider down, which flushes its queue, and
-then the meter provider, which exports once more. Dropping the guard does the same with 5
-seconds. It blocks the calling thread; with the gRPC exporter the last export runs on the Tokio
-runtime, so on a current-thread runtime call it from `spawn_blocking`.
+`TelemetryGuard::shutdown(budget)` calls the tracer provider's `shutdown_with_timeout(budget)`,
+which flushes the span queue, and then the meter provider's, which exports once more. In
+OpenTelemetry 0.33 the meter provider ignores the timeout and waits up to a fixed 5 seconds, so
+the call can take the budget plus 5 seconds. Dropping the guard does the same with a budget of 5
+seconds. Whatever isn't sent by then is lost, and `shutdown` says so with `Shutdown`.
+
+`shutdown` blocks the calling thread. With the gRPC exporter the last export runs on the Tokio
+runtime: calling it from a multi-thread runtime works, directly or through `spawn_blocking`,
+which is what the example and the tests do. On a current-thread runtime it isn't tested, and a
+direct call is expected to wait out its budget, since it blocks the only thread that could run
+the export.
 
 `testing::capture()` installs, once per test binary, a tracer provider with an in-memory
-exporter that takes each span as it ends and samples every trace, a meter provider with an
-in-memory exporter, the same OpenTelemetry layer and the same propagators. Later calls return
+exporter that takes each span as it ends, a meter provider with an in-memory exporter and a
+cardinality limit of 2000, the same OpenTelemetry layer and the same propagators. The sampler is
+the SDK's default: every new trace is kept, and a span continued from headers that say "not
+sampled" is not. It installs no log filter and no fmt layer, so every span is created and no
+log line is printed. Later calls return
 the same handle. `Captured::metric` flushes the meter provider and reads the last export.
 
 ## Guarantees and limits
@@ -92,10 +102,13 @@ the same handle. `Captured::metric` flushes the meter provider and reads the las
 The library's guarantees are in [Architecture](../architecture.md#guarantees-and-limits). This
 crate's own:
 
-- `init` either installs everything or nothing.
+- `init` either installs everything or nothing: every step that can fail runs before the
+  subscriber is installed. A failed `init` may have built exporters, which are dropped.
 - A header value never appears in `Debug`, in an error or in a log line of this crate.
 - The settings' field names and defaults are part of the public API.
-- The exporters are built without TLS in 0.1.0.
+- The exporters are built without TLS in 0.1.0, so an `https` endpoint doesn't work.
+- Only `tracing` events reach the logs: no bridge from the `log` crate is installed.
+- The log lines carry the fields of the spans they are in, not the trace id.
 - `testing::capture` and `init` can't share a process: each installs the global subscriber.
 - Tests in one binary share what `capture` holds when they run in one process, as under
   `cargo test`. Give each test's spans and metrics names of their own.
@@ -110,7 +123,7 @@ crate's own:
 | `TelemetryError::NoRuntime` | The gRPC protocol was picked and `init` was called outside a Tokio runtime |
 | `TelemetryError::Exporter` | An exporter couldn't be built, as from an endpoint that isn't a URL |
 | `TelemetryError::AlreadyInitialized` | A global `tracing` subscriber is installed already |
-| `TelemetryError::Shutdown` | A provider didn't flush and stop cleanly, as when the Collector is down |
+| `TelemetryError::Shutdown` | A provider reported a failed or timed-out shutdown, as when the Collector is down; what it still held is lost |
 
 The enum is `#[non_exhaustive]`. A Collector that is down is not an error from `init`: export
 failures are log lines from the `opentelemetry` crates.

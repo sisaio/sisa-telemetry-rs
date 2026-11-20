@@ -13,8 +13,8 @@ wait in a queue for hours. This follows the OpenTelemetry messaging conventions.
 
 The producer writes the W3C headers `traceparent`, `tracestate` and `baggage` into each message. The
 consumer opens one span per message, which starts a new trace and carries a link to the producer's
-span. The consumer's span also carries `sisa.correlation_id`, so a business flow can be found across
-traces. HTTP and gRPC are different: a server span is the caller's child.
+span. The consumer's span also carries `sisa.correlation_id`, which the consuming code sets, so
+a business flow can be found across traces. HTTP and gRPC are different: a server span is the caller's child.
 
 ## Consequences
 

@@ -31,10 +31,12 @@ sequenceDiagram
   headers, and messaging works the same.
 - Step 7 makes the span the root of a new trace, adds one link to the producer's span, and keeps
   the baggage. Headers with no trace context add no link.
-- Step 7 comes before step 8: once the span is entered its parent is fixed.
+- Step 7 comes before step 8: once the span is entered its parent is fixed, and `link_from`
+  then logs a warning and adds nothing.
 - The consumer opens one span per message, never one around its poll loop.
-- The consumer's span also carries `sisa.correlation_id` from the message, so a business flow can
-  be found across traces even though each message is its own trace.
+- Each message is its own trace, so a business flow is found across traces by an id on the
+  spans. This library doesn't set one: the caller puts `sisa.correlation_id`
+  (`attributes::CORRELATION_ID`) on its span, as sisa-messaging will once it adopts the core.
 
 Why a link and not a parent: [ADR-0007](adr/0007-a-consumed-message-links-to-its-producer.md).
 
@@ -58,6 +60,7 @@ sequenceDiagram
     Server-->>Client: response
 ```
 
-- Step 5 makes the caller's span the parent, with the caller's sampling decision, which the
-  default sampler respects. Headers with no trace context leave the span as it is.
+- Step 5 makes the caller's span the parent, with the caller's sampling decision. Under the
+  default sampler, `parentbased_traceidratio`, a caller that didn't sample its trace means the
+  server's span isn't exported. Headers with no trace context leave the span as it is.
 - A reqwest middleware and an axum layer that do steps 2 and 5 are planned for 0.2.0.

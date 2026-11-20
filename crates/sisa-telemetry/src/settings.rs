@@ -99,7 +99,7 @@ pub struct OtlpSettings {
     /// gRPC by default. `OTEL_EXPORTER_OTLP_PROTOCOL` wins.
     pub protocol: OtlpProtocol,
     /// Headers sent with every export, such as a SaaS backend's API key. `Debug` shows their
-    /// names only. `OTEL_EXPORTER_OTLP_HEADERS` adds to them and wins for a name in both.
+    /// names only. `OTEL_EXPORTER_OTLP_HEADERS` adds to them; set a name in one place only.
     pub headers: BTreeMap<String, String>,
 }
 
@@ -147,10 +147,10 @@ pub enum TracesSampler {
 pub struct TracesSettings {
     /// `parentbased_traceidratio` by default: respect the caller's decision, and sample the
     /// traces that start here by `ratio`. `OTEL_TRACES_SAMPLER` wins, with its ratio in
-    /// `OTEL_TRACES_SAMPLER_ARG`.
+    /// `OTEL_TRACES_SAMPLER_ARG`; `ratio` is then not read.
     pub sampler: TracesSampler,
-    /// The share of traces the ratio samplers keep, from 0.0 to 1.0. 1.0 by default, which suits
-    /// development; set about 0.1 in production, and let the Collector's tail sampling keep every
+    /// The share of traces the ratio samplers keep, from 0.0 to 1.0; a value below keeps none
+    /// and one above keeps all. 1.0 by default, which suits development; set about 0.1 in production, and let the Collector's tail sampling keep every
     /// error and slow trace.
     pub ratio: f64,
 }
@@ -171,11 +171,13 @@ impl Default for TracesSettings {
 #[non_exhaustive]
 pub struct MetricsSettings {
     /// How often metrics are pushed over OTLP, written as `30s`, `500ms`, `1m` or `1h`. 30
-    /// seconds by default. `OTEL_METRIC_EXPORT_INTERVAL`, in milliseconds, wins.
+    /// seconds by default. `OTEL_METRIC_EXPORT_INTERVAL`, in milliseconds, wins; when it is set
+    /// to something that isn't a number, the SDK's 60 seconds apply, not this.
     #[serde(deserialize_with = "deserialize_duration")]
     pub interval: Duration,
-    /// The most attribute sets one instrument keeps, 2000 by default. Past it, the SDK folds new
-    /// sets into one overflow series, so a label fed with ids by accident stays bounded.
+    /// The most attribute sets one instrument keeps, 2000 by default. Past it, new sets share
+    /// one point with the attribute `otel.metric.overflow`: the total stays right, and the
+    /// attributes of the extra sets are lost.
     pub cardinality_limit: usize,
 }
 

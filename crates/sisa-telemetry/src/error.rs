@@ -3,8 +3,9 @@
 /// Why [`init`](crate::init) or [`TelemetryGuard::shutdown`](crate::TelemetryGuard::shutdown)
 /// failed.
 ///
-/// Recording never fails: once telemetry runs, a Collector that is down costs dropped spans and
-/// metric points, not an error in the service.
+/// Recording returns no error: once telemetry runs, a Collector that is down costs the spans
+/// that don't fit the export queue and a log line per failed export, not an error in the
+/// service.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum TelemetryError {
@@ -36,7 +37,7 @@ pub enum TelemetryError {
     #[error("telemetry is initialized already: {0}")]
     AlreadyInitialized(String),
 
-    /// A provider didn't flush and stop within the budget; what it still held is lost.
+    /// A provider reported that its shutdown failed or timed out; what it still held is lost.
     #[error("telemetry did not shut down cleanly: {0}")]
     Shutdown(String),
 }

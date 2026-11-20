@@ -71,18 +71,22 @@ writes the [trace headers](../formats.md#trace-headers). Asking for the context 
 so set its parent or link first.
 
 `link_from` reads the headers with the global propagator. It gives the span a parent context that
-holds the headers' baggage and no span, which makes the span the root of a new trace, and adds a
-link to the producer's span when the headers carry a valid one.
+holds the headers' baggage and no span, which makes the span the root of a new trace even when
+another span is current, and adds a link to the producer's span when the headers carry a valid
+one. The link holds the producer's ids only; it sets no attribute, such as a correlation id.
 
 `continue_from` reads the headers the same way and, when they carry a valid span, makes it the
-span's parent, baggage included. Otherwise it leaves the span as it is.
+span's parent, baggage and sampling decision included. Otherwise it leaves the span as it is, a
+child of the current span if there is one.
 
-Both must run before the span is entered. On a span that has started they log one warning and
-change nothing. [Flows](../flows.md) draws both.
+Both must run before the span is entered and before `inject` is called on it. On a span that
+has started, each call logs a warning through `tracing` and changes nothing: the span keeps its
+parent and gets no link. [Flows](../flows.md) draws both.
 
 `record_error` joins the error and each `source()` under it with `: `, sets the span's status to
 `Error` with that text, and adds an [`exception` event](../formats.md#errors-on-spans). It writes
-no log line.
+no log line and records no error type or stack trace. An error whose `Display` already includes
+its source shows that text twice.
 
 `meter` asks the global meter provider for a meter with the given scope and version.
 `duration_histogram` builds an `f64` histogram with the unit `s` and the
@@ -93,7 +97,8 @@ no log line.
 The library's guarantees are in [Architecture](../architecture.md#guarantees-and-limits). This
 crate's own:
 
-- Without `init`, nothing is written, linked, recorded or logged, and nothing panics.
+- Without `init`, nothing is written, linked, recorded or logged, and nothing panics. The same
+  holds after `init` with `enabled = false`.
 - No function here installs a provider, a propagator or a subscriber.
 - A span the log filter turned off is skipped silently: it has no OpenTelemetry data to change.
 - An instrument made by `meter` before the application's `init` records nothing for the life of
