@@ -1,7 +1,7 @@
 //! What can go wrong while telemetry starts or stops.
 
-/// Why [`init`](crate::init) or [`TelemetryGuard::shutdown`](crate::TelemetryGuard::shutdown)
-/// failed.
+/// Why [`init`](crate::init), [`reload_log_filter`](crate::reload_log_filter) or
+/// [`TelemetryGuard::shutdown`](crate::TelemetryGuard::shutdown) failed.
 ///
 /// Recording returns no error: once telemetry runs, a Collector that is down costs the spans
 /// that don't fit the export queue and a log line per failed export, not an error in the
@@ -36,6 +36,11 @@ pub enum TelemetryError {
     /// A global `tracing` subscriber is installed already: `init` runs once per process.
     #[error("telemetry is initialized already: {0}")]
     AlreadyInitialized(String),
+
+    /// [`reload_log_filter`](crate::reload_log_filter) was called while no subscriber from
+    /// [`init`](crate::init) is installed.
+    #[error("telemetry is not initialized: call init first")]
+    NotInitialized,
 
     /// A provider reported that its shutdown failed or timed out; what it still held is lost.
     #[error("telemetry did not shut down cleanly: {0}")]

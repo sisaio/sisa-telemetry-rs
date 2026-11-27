@@ -3,6 +3,7 @@
 use std::{
     collections::HashMap,
     str::FromStr,
+    sync::OnceLock,
     time::{Duration, Instant},
 };
 
@@ -23,10 +24,11 @@ use opentelemetry_sdk::{
 };
 use tracing::Subscriber;
 use tracing_subscriber::{
-    EnvFilter, Layer,
+    EnvFilter, Layer, Registry,
     filter::{FilterFn, filter_fn},
     layer::SubscriberExt,
     registry::LookupSpan,
+    reload,
     util::SubscriberInitExt,
 };
 
@@ -50,6 +52,14 @@ fn from_the_exporter(target: &str) -> bool {
                 .strip_prefix(name)
                 .is_some_and(|rest| rest.is_empty() || rest.starts_with("::"))
         })
+}
+
+// The handle to the filter `init` installed, which `reload_log_filter` swaps. Set once, by the
+// `init` that installs the subscriber.
+static LOG_FILTER: OnceLock<reload::Handle<EnvFilter, Registry>> = OnceLock::new();
+
+fn parse_filter(filter: &str) -> Result<EnvFilter, TelemetryError> {
+    EnvFilter::try_new(filter).map_err(|error| TelemetryError::LogFilter(error.to_string()))
 }
 
 // One signal's OTLP names: its endpoint variable, and its path under an HTTP endpoint.
@@ -349,8 +359,7 @@ pub fn init(
     settings: &TelemetrySettings,
     resource: ServiceResource,
 ) -> Result<TelemetryGuard, TelemetryError> {
-    let filter = EnvFilter::try_new(&settings.log.filter)
-        .map_err(|error| TelemetryError::LogFilter(error.to_string()))?;
+    let (filter, filter_handle) = reload::Layer::new(parse_filter(&settings.log.filter)?);
 
     let providers = if settings.enabled {
         let protocol = protocol(&settings.otlp, environment)?;
@@ -390,6 +399,7 @@ pub fn init(
         .with(providers.as_ref().map(|(tracer, _)| trace_layer(tracer)))
         .try_init()
         .map_err(|error| TelemetryError::AlreadyInitialized(error.to_string()))?;
+    _ = LOG_FILTER.set(filter_handle);
 
     let (tracer_provider, meter_provider) = providers.unzip();
     if let Some(provider) = &tracer_provider {
@@ -404,6 +414,31 @@ pub fn init(
         tracer_provider,
         meter_provider,
     })
+}
+
+/// Replaces the filter from `log.filter` for the rest of the process, or until the next call, as
+/// for an admin endpoint that turns on `debug` for one target while an incident lasts.
+///
+/// It takes the same `EnvFilter` syntax as `log.filter`, and filters the traces too: a span
+/// below the new level is no longer created. Spans already open keep running.
+///
+/// ```no_run
+/// sisa_telemetry::reload_log_filter("info,my_service=debug")?;
+/// # Ok::<(), sisa_telemetry::TelemetryError>(())
+/// ```
+///
+/// # Errors
+///
+/// [`TelemetryError::LogFilter`] when the filter isn't valid syntax, and
+/// [`TelemetryError::NotInitialized`] when [`init`] hasn't installed the subscriber, as before
+/// it or under `testing::capture`. The current filter stays in place either way.
+pub fn reload_log_filter(filter: &str) -> Result<(), TelemetryError> {
+    let filter = parse_filter(filter)?;
+    LOG_FILTER
+        .get()
+        .ok_or(TelemetryError::NotInitialized)?
+        .reload(filter)
+        .map_err(|_| TelemetryError::NotInitialized)
 }
 
 #[cfg(test)]
