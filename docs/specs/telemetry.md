@@ -33,6 +33,9 @@ impl TelemetryGuard {
     pub fn shutdown(self, budget: Duration) -> Result<(), TelemetryError>;
 }
 
+#[cfg(feature = "prometheus")]
+pub fn prometheus_text() -> String;
+
 #[cfg(feature = "testing")]
 pub mod testing {
     pub fn capture() -> Captured;
@@ -49,6 +52,7 @@ pub mod testing {
 | `ServiceResource` | The service's name and version, and optionally its namespace, environment and extra attributes |
 | `TelemetryGuard` | Flushes and shuts the providers down on drop, or with `shutdown(budget)`, where the budget bounds the wait for the spans |
 | `TelemetryError` | Why `init` or `shutdown` failed |
+| Feature `prometheus`: `prometheus_text` | The metrics in the Prometheus text format, for an admin port's `/metrics` handler |
 | Feature `testing`: `testing::capture`, `Captured`, `CapturedMetric`, `CapturedPoint`, `SpanData` | In-memory exporters for tests, as a dev-dependency, and `check_catalog`, which checks the captured metrics against the [metric catalog](../formats.md#span-and-metric-names-per-crate) |
 
 ## Behaviour
@@ -61,6 +65,8 @@ pub mod testing {
    - Traces: a batch span processor, and the sampler from `traces.sampler` and `traces.ratio`.
    - Metrics: a periodic reader that pushes every `metrics.interval`, and a view that gives
      every instrument the `metrics.cardinality_limit`.
+     With the `prometheus` feature, a second reader fills a Prometheus registry, which
+     `prometheus_text` encodes on each call; the push goes on beside it.
 3. Installs the global `tracing` subscriber: the filter, the fmt layer (JSON or pretty, on
    stdout), and the layer that turns spans into OpenTelemetry spans. That layer leaves out the
    spans of the crates the exporters run on (`opentelemetry*`, `tonic`, `hyper`, `hyper_util`,
@@ -74,6 +80,10 @@ propagator, no exporter.
 `init` keeps a handle to the filter it installs, and `reload_log_filter` parses a new one and
 swaps it in for the whole process, spans included. A filter that doesn't parse leaves the
 current one in place. Under `testing::capture`, or before `init`, there is no filter to swap.
+
+`prometheus_text` returns an empty string when no `init` with `enabled = true` has run, as
+under `testing::capture`. The Prometheus exporter adds `_total` to counters and the unit to the
+name, such as `_seconds`, and the scope as `otel_scope_name`.
 
 Where an `OTEL_*` variable matches a setting, the variable wins
 ([Formats](../formats.md#settings)). The SDK and the exporters read most of them themselves, but
