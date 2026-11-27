@@ -37,6 +37,7 @@ use tracing_subscriber::{
 use crate::{
     LogFormat, OtlpProtocol, OtlpSettings, ServiceResource, TelemetryError, TelemetrySettings,
     TracesSampler, TracesSettings,
+    context::{ContextJson, ContextLayer},
 };
 
 // How long a guard that is dropped, not shut down, waits for the last export.
@@ -296,7 +297,10 @@ where
     S: Subscriber + for<'span> LookupSpan<'span>,
 {
     match format {
-        LogFormat::Json => tracing_subscriber::fmt::layer().json().boxed(),
+        LogFormat::Json => tracing_subscriber::fmt::layer()
+            .json()
+            .event_format(ContextJson::new())
+            .boxed(),
         LogFormat::Pretty => tracing_subscriber::fmt::layer().pretty().boxed(),
     }
 }
@@ -473,6 +477,7 @@ pub fn init(
 
     tracing_subscriber::registry()
         .with(filter)
+        .with(ContextLayer)
         .with(log_layer(settings.log.format))
         .with(providers.as_ref().map(|(tracer, _, _)| trace_layer(tracer)))
         .with(

@@ -29,8 +29,6 @@ What the design names and a later milestone ships:
 - **TLS to the Collector.** 0.1.0 builds the exporters without TLS, which suits a Collector
   beside the service. An `https` endpoint, as a SaaS backend has, needs a crypto provider (ring
   or aws-lc) picked for both the gRPC and the HTTP exporter.
-- **Trace ids in the JSON logs.** The log lines on stdout carry the span's fields, not its
-  trace id; joining logs and traces by id needs a custom log format or OTLP logs (0.3.0).
 
 ## Later
 

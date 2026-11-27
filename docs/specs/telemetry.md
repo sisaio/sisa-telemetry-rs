@@ -69,11 +69,13 @@ pub mod testing {
      `prometheus_text` encodes on each call; the push goes on beside it.
    - Logs, with `log.otlp = true`: a third exporter and a logger provider with a batch
      processor.
-3. Installs the global `tracing` subscriber: the filter, the fmt layer (JSON or pretty, on
-   stdout), the layer that turns spans into OpenTelemetry spans and, with `log.otlp`, the layer
-   that turns events into OpenTelemetry log records, with the trace and span ids of the span
-   they are in. Both leave out what the crates the exporters run on record (`opentelemetry*`,
-   `tonic`, `hyper`, `hyper_util`, `reqwest`, `h2`), so an export doesn't trace or log itself.
+3. Installs the global `tracing` subscriber: the filter, a layer that keeps each span's
+   sisa-context fields, the fmt layer (JSON or pretty, on stdout, with those fields and the
+   trace id added to each JSON line), the layer that turns spans into OpenTelemetry spans and,
+   with `log.otlp`, the layer that turns events into OpenTelemetry log records, with the trace
+   and span ids of the span they are in. The last two leave out what the crates the exporters
+   run on record (`opentelemetry*`, `tonic`, `hyper`, `hyper_util`, `reqwest`, `h2`), so an
+   export doesn't trace or log itself.
 4. Sets the global tracer provider, meter provider and propagators: W3C trace context, then
    baggage.
 
@@ -131,8 +133,9 @@ crate's own:
 - The settings' field names and defaults are part of the public API.
 - The exporters are built without TLS in 0.1.0, so an `https` endpoint doesn't work.
 - Only `tracing` events reach the logs: no bridge from the `log` crate is installed.
-- The log lines on stdout carry the fields of the spans they are in, not the trace id; the OTLP
-  log records of `log.otlp` carry the trace and span ids.
+- A JSON log line on stdout also carries the sisa-context fields of its spans and the trace and
+  span ids at its top level ([Formats](../formats.md#log-lines)); a pretty line doesn't. The
+  OTLP log records of `log.otlp` carry the trace and span ids.
 - `testing::capture` and `init` can't share a process: each installs the global subscriber.
 - Tests in one binary share what `capture` holds when they run in one process, as under
   `cargo test`. Give each test's spans and metrics names of their own.
