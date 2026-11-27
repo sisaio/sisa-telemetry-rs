@@ -214,7 +214,8 @@ pub enum LogFormat {
     Pretty,
 }
 
-/// `[telemetry.log]`: the logs on stdout, which keep flowing when the Collector is down.
+/// `[telemetry.log]`: the logs on stdout, which keep flowing when the Collector is down, and
+/// optionally over OTLP too.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(default)]
 #[non_exhaustive]
@@ -225,6 +226,12 @@ pub struct LogSettings {
     /// a default level, then `target=level` pairs. `info,sqlx=warn,hyper=warn` by default. It
     /// filters the traces too: a span below its level is never created.
     pub filter: String,
+    /// Whether logs are also exported over OTLP, as log records with the trace and span ids of
+    /// the span they are in, to the same endpoint as the traces and metrics; over HTTP,
+    /// `/v1/logs` is added to it. Off by default. Stdout keeps every line either way, so with it
+    /// on a backend that also collects stdout gets each log twice: pick one path. It takes
+    /// `enabled = true`. `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` wins over the endpoint.
+    pub otlp: bool,
 }
 
 // JSON at `info`, with the noisiest dependencies at `warn`.
@@ -233,6 +240,7 @@ impl Default for LogSettings {
         Self {
             format: LogFormat::default(),
             filter: "info,sqlx=warn,hyper=warn".to_owned(),
+            otlp: false,
         }
     }
 }
@@ -269,6 +277,7 @@ mod tests {
         assert!(!settings.metrics.tenant_label);
         assert_eq!(settings.log.format, LogFormat::Json);
         assert_eq!(settings.log.filter, "info,sqlx=warn,hyper=warn");
+        assert!(!settings.log.otlp);
     }
 
     #[test]
@@ -277,7 +286,7 @@ mod tests {
             "otlp": { "endpoint": "http://collector:4318", "protocol": "http/protobuf" },
             "traces": { "sampler": "always_on", "capture_sql": true },
             "metrics": { "interval": "500ms", "tenant_label": true },
-            "log": { "format": "pretty" },
+            "log": { "format": "pretty", "otlp": true },
             "resource": { "attributes": { "region": "eu-west-1" } },
         }))
         .unwrap();
@@ -294,6 +303,7 @@ mod tests {
         assert_eq!(settings.metrics.cardinality_limit, 2000);
         assert!(settings.metrics.tenant_label);
         assert_eq!(settings.log.format, LogFormat::Pretty);
+        assert!(settings.log.otlp);
         assert_eq!(settings.resource.attributes["region"], "eu-west-1");
     }
 

@@ -13,11 +13,13 @@ use opentelemetry::{
     propagation::{TextMapCompositePropagator, TextMapPropagator},
     trace::TracerProvider,
 };
+use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
 use opentelemetry_otlp::{
-    MetricExporter, Protocol, SpanExporter, WithExportConfig, WithHttpConfig, WithTonicConfig,
-    tonic_types::metadata::MetadataMap,
+    LogExporter, MetricExporter, Protocol, SpanExporter, WithExportConfig, WithHttpConfig,
+    WithTonicConfig, tonic_types::metadata::MetadataMap,
 };
 use opentelemetry_sdk::{
+    logs::SdkLoggerProvider,
     metrics::{Instrument, PeriodicReader, SdkMeterProvider, Stream},
     propagation::{BaggagePropagator, TraceContextPropagator},
     trace::{Sampler, SdkTracer, SdkTracerProvider},
@@ -81,6 +83,11 @@ const TRACES: Signal = Signal {
 const METRICS: Signal = Signal {
     endpoint_variable: "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
     path: "/v1/metrics",
+};
+
+const LOGS: Signal = Signal {
+    endpoint_variable: "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
+    path: "/v1/logs",
 };
 
 // An environment variable that is set and not empty.
@@ -215,6 +222,35 @@ fn metric_exporter(
     .map_err(exporter_error)
 }
 
+fn log_exporter(
+    otlp: &OtlpSettings,
+    protocol: OtlpProtocol,
+) -> Result<LogExporter, TelemetryError> {
+    let endpoint = endpoint(otlp, protocol, &LOGS, environment);
+    match protocol {
+        OtlpProtocol::Grpc => {
+            let builder = LogExporter::builder()
+                .with_tonic()
+                .with_metadata(metadata(otlp)?);
+            match endpoint {
+                Some(endpoint) => builder.with_endpoint(endpoint).build(),
+                None => builder.build(),
+            }
+        }
+        OtlpProtocol::HttpProtobuf => {
+            let builder = LogExporter::builder()
+                .with_http()
+                .with_protocol(Protocol::HttpBinary)
+                .with_headers(HashMap::from_iter(otlp.headers.clone()));
+            match endpoint {
+                Some(endpoint) => builder.with_endpoint(endpoint).build(),
+                None => builder.build(),
+            }
+        }
+    }
+    .map_err(exporter_error)
+}
+
 // Every instrument gets the cardinality limit and keeps the rest of what it asked for.
 pub(crate) fn cardinality_view(limit: usize) -> impl Fn(&Instrument) -> Option<Stream> {
     move |_instrument| Stream::builder().with_cardinality_limit(limit).build().ok()
@@ -246,6 +282,15 @@ pub(crate) fn propagator() -> impl TextMapPropagator + Send + Sync + 'static {
     ])
 }
 
+// The layer that turns `tracing` events into OpenTelemetry log records, for `log.otlp`. The
+// exporter's own events stay out, as their spans do.
+fn otlp_log_layer<S>(provider: &SdkLoggerProvider) -> impl Layer<S> + use<S>
+where
+    S: Subscriber + for<'span> LookupSpan<'span>,
+{
+    OpenTelemetryTracingBridge::new(provider).with_filter(not_the_exporter())
+}
+
 fn log_layer<S>(format: LogFormat) -> Box<dyn Layer<S> + Send + Sync>
 where
     S: Subscriber + for<'span> LookupSpan<'span>,
@@ -259,8 +304,8 @@ where
 /// Keeps telemetry running. Flushes and shuts down the providers on drop, or with
 /// [`shutdown`](Self::shutdown), which picks how long to wait for the spans.
 ///
-/// A drop waits up to 5 seconds for the span queue and up to 5 more for the last metric export,
-/// on the thread that drops it.
+/// A drop waits up to 5 seconds for the span and log queues and up to 5 more for the last metric
+/// export, on the thread that drops it.
 ///
 /// Hold it until the end of `main`: dropping it earlier stops the export.
 #[derive(Debug)]
@@ -268,13 +313,14 @@ where
 pub struct TelemetryGuard {
     tracer_provider: Option<SdkTracerProvider>,
     meter_provider: Option<SdkMeterProvider>,
+    logger_provider: Option<SdkLoggerProvider>,
 }
 
 impl TelemetryGuard {
     /// Flushes what the providers still hold and shuts them down. Call it after the servers
     /// have stopped and before the pools close.
     ///
-    /// `budget` is how long it waits for the span queue to be sent. The last metric export then
+    /// `budget` is how long it waits for the span queue, and then the log queue, to be sent. The last metric export then
     /// gets up to 5 seconds whatever the budget is: the SDK's meter provider ignores the timeout
     /// it is given. So the call can take `budget` plus 5 seconds.
     ///
@@ -298,6 +344,12 @@ impl TelemetryGuard {
             && let Err(error) = provider.shutdown_with_timeout(budget)
         {
             failures.push(format!("traces: {error}"));
+        }
+        if let Some(provider) = self.logger_provider.take()
+            && let Err(error) =
+                provider.shutdown_with_timeout(deadline.saturating_duration_since(Instant::now()))
+        {
+            failures.push(format!("logs: {error}"));
         }
         if let Some(provider) = self.meter_provider.take()
             && let Err(error) =
@@ -390,7 +442,7 @@ pub fn init(
             reader = reader.with_interval(settings.metrics.interval);
         }
         let meter_provider = SdkMeterProvider::builder()
-            .with_resource(resource)
+            .with_resource(resource.clone())
             .with_reader(reader.build())
             .with_view(cardinality_view(settings.metrics.cardinality_limit));
         #[cfg(feature = "prometheus")]
@@ -401,7 +453,20 @@ pub fn init(
                 .map_err(|error| TelemetryError::Exporter(error.to_string()))?,
         );
 
-        Some((tracer_provider.build(), meter_provider.build()))
+        let logger_provider = settings.log.otlp.then(|| {
+            log_exporter(&settings.otlp, protocol).map(|exporter| {
+                SdkLoggerProvider::builder()
+                    .with_resource(resource)
+                    .with_batch_exporter(exporter)
+                    .build()
+            })
+        });
+
+        Some((
+            tracer_provider.build(),
+            meter_provider.build(),
+            logger_provider.transpose()?,
+        ))
     } else {
         None
     };
@@ -409,25 +474,33 @@ pub fn init(
     tracing_subscriber::registry()
         .with(filter)
         .with(log_layer(settings.log.format))
-        .with(providers.as_ref().map(|(tracer, _)| trace_layer(tracer)))
+        .with(providers.as_ref().map(|(tracer, _, _)| trace_layer(tracer)))
+        .with(
+            providers
+                .as_ref()
+                .and_then(|(_, _, logger)| logger.as_ref().map(otlp_log_layer)),
+        )
         .try_init()
         .map_err(|error| TelemetryError::AlreadyInitialized(error.to_string()))?;
     _ = LOG_FILTER.set(filter_handle);
 
-    let (tracer_provider, meter_provider) = providers.unzip();
-    if let Some(provider) = &tracer_provider {
-        global::set_tracer_provider(provider.clone());
-        global::set_text_map_propagator(propagator());
-    }
-    if let Some(provider) = &meter_provider {
-        global::set_meter_provider(provider.clone());
-        #[cfg(feature = "prometheus")]
-        PROMETHEUS_REGISTRY.get_or_init(|| registry);
-    }
+    let Some((tracer_provider, meter_provider, logger_provider)) = providers else {
+        return Ok(TelemetryGuard {
+            tracer_provider: None,
+            meter_provider: None,
+            logger_provider: None,
+        });
+    };
+    global::set_tracer_provider(tracer_provider.clone());
+    global::set_text_map_propagator(propagator());
+    global::set_meter_provider(meter_provider.clone());
+    #[cfg(feature = "prometheus")]
+    PROMETHEUS_REGISTRY.get_or_init(|| registry);
 
     Ok(TelemetryGuard {
-        tracer_provider,
-        meter_provider,
+        tracer_provider: Some(tracer_provider),
+        meter_provider: Some(meter_provider),
+        logger_provider,
     })
 }
 
@@ -481,6 +554,36 @@ pub fn prometheus_text() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_otlp_log_record_carries_the_span_it_is_in() {
+        let logs = opentelemetry_sdk::logs::InMemoryLogExporter::default();
+        let logger_provider = SdkLoggerProvider::builder()
+            .with_simple_exporter(logs.clone())
+            .build();
+        let tracer_provider = SdkTracerProvider::builder().build();
+        let subscriber = tracing_subscriber::registry()
+            .with(trace_layer(&tracer_provider))
+            .with(otlp_log_layer(&logger_provider));
+
+        let span_id = tracing::subscriber::with_default(subscriber, || {
+            tracing::info_span!("handle").in_scope(|| {
+                tracing::info!(target: "orders", "placed");
+                tracing::warn!(target: "opentelemetry_sdk", "export failed");
+                opentelemetry::trace::TraceContextExt::span(&opentelemetry::Context::current())
+                    .span_context()
+                    .span_id()
+            })
+        });
+
+        let emitted = logs.get_emitted_logs().unwrap();
+        assert_eq!(emitted.len(), 1);
+        let record = &emitted[0].record;
+        assert_eq!(
+            record.trace_context().map(|context| context.span_id),
+            Some(span_id)
+        );
+    }
 
     fn unset(_name: &str) -> Option<String> {
         None

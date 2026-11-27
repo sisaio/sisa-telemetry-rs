@@ -113,7 +113,7 @@ the key.
 | Key | Default | Meaning | Environment variable that wins |
 | --- | --- | --- | --- |
 | `enabled` | `true` | Off leaves the logs on stdout only: no provider, no propagator, no exporter | |
-| `otlp.endpoint` | `http://localhost:4317` for gRPC, `http://localhost:4318` for HTTP | The Collector's base URL, usually a sidecar or a DaemonSet. Over HTTP, `/v1/traces` and `/v1/metrics` are added to it | `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` |
+| `otlp.endpoint` | `http://localhost:4317` for gRPC, `http://localhost:4318` for HTTP | The Collector's base URL, usually a sidecar or a DaemonSet. Over HTTP, `/v1/traces`, `/v1/metrics` and `/v1/logs` are added to it | `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT`, `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` |
 | `otlp.protocol` | `grpc` | `grpc` or `http/protobuf` | `OTEL_EXPORTER_OTLP_PROTOCOL` |
 | `otlp.headers` | none | Headers on every export, for a backend's API key. Their values are secret | `OTEL_EXPORTER_OTLP_HEADERS` adds to them. Set a name in one place only: for a name in both, the HTTP exporter sends the variable's value, and what the gRPC one sends isn't checked |
 | `traces.sampler` | `parentbased_traceidratio` | `always_on`, `always_off`, `traceidratio`, `parentbased_always_on`, `parentbased_always_off` or `parentbased_traceidratio`. The default respects the caller's decision and samples new traces by ratio | `OTEL_TRACES_SAMPLER`, with `OTEL_TRACES_SAMPLER_ARG` |
@@ -124,6 +124,7 @@ the key.
 | `metrics.tenant_label` | `false` | Whether the metrics of the sisa crates carry `sisa.tenant`. Turn it on only where the number of tenants is small and bounded. The sisa crates that record those metrics read it; `init` doesn't | |
 | `log.format` | `json` | `json`, or `pretty` for development | |
 | `log.filter` | `info,sqlx=warn,hyper=warn` | `EnvFilter` syntax: a default level, then `target=level` pairs. It filters the traces too: a span below its level is never created. `reload_log_filter` replaces it at runtime. `RUST_LOG` is not read | |
+| `log.otlp` | `false` | Whether logs are also exported over OTLP, as log records with the trace and span ids of the span they are in. Stdout keeps every line, so a backend that also collects stdout gets each log twice: pick one path. It takes `enabled = true` | |
 | `resource.attributes` | none | Extra resource attributes, such as the cluster and the region | `OTEL_RESOURCE_ATTRIBUTES`, key by key |
 
 ```toml
@@ -147,6 +148,3 @@ filter = "info,sqlx=warn,hyper=warn"
 [telemetry.resource.attributes]
 "k8s.cluster.name" = "prod-eu"
 ```
-
-A key the design names that isn't read yet, since what uses it comes later: `log.otlp`
-([roadmap](../ROADMAP.md#not-in-010)).

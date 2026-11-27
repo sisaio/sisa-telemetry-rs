@@ -32,10 +32,12 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 tracing-opentelemetry = { workspace = true }
 
-# The SDK and the OTLP exporters, on the minor version the core pins.
-opentelemetry = { workspace = true }
-opentelemetry_sdk = { workspace = true }
-opentelemetry-otlp = { workspace = true }
+# The SDK and the OTLP exporters, on the minor version the core pins. Only this crate turns on
+# logs, for `log.otlp`; the core stays on traces and metrics.
+opentelemetry = { workspace = true, features = ["logs"] }
+opentelemetry_sdk = { workspace = true, features = ["logs"] }
+opentelemetry-otlp = { workspace = true, features = ["logs"] }
+opentelemetry-appender-tracing = { workspace = true }
 http = { workspace = true }
 opentelemetry-prometheus = { workspace = true, optional = true }
 prometheus = { workspace = true, optional = true }
@@ -49,6 +51,8 @@ tokio = { workspace = true }
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time", "net"] }
 serde_json = { workspace = true }
+# In-memory exporters for the unit tests of the OTLP log layer.
+opentelemetry_sdk = { workspace = true, features = ["testing", "logs"] }
 # The OpenTelemetry Collector the OTLP tests export to.
 testcontainers = { workspace = true }
 

@@ -61,16 +61,19 @@ pub mod testing {
 
 1. Parses `log.filter`.
 2. With `enabled = true`: picks the protocol, builds the [resource](../formats.md#resource), and
-   builds the two exporters and their providers.
+   builds the exporters and their providers.
    - Traces: a batch span processor, and the sampler from `traces.sampler` and `traces.ratio`.
    - Metrics: a periodic reader that pushes every `metrics.interval`, and a view that gives
      every instrument the `metrics.cardinality_limit`.
      With the `prometheus` feature, a second reader fills a Prometheus registry, which
      `prometheus_text` encodes on each call; the push goes on beside it.
+   - Logs, with `log.otlp = true`: a third exporter and a logger provider with a batch
+     processor.
 3. Installs the global `tracing` subscriber: the filter, the fmt layer (JSON or pretty, on
-   stdout), and the layer that turns spans into OpenTelemetry spans. That layer leaves out the
-   spans of the crates the exporters run on (`opentelemetry*`, `tonic`, `hyper`, `hyper_util`,
-   `reqwest`, `h2`), so an export doesn't trace itself.
+   stdout), the layer that turns spans into OpenTelemetry spans and, with `log.otlp`, the layer
+   that turns events into OpenTelemetry log records, with the trace and span ids of the span
+   they are in. Both leave out what the crates the exporters run on record (`opentelemetry*`,
+   `tonic`, `hyper`, `hyper_util`, `reqwest`, `h2`), so an export doesn't trace or log itself.
 4. Sets the global tracer provider, meter provider and propagators: W3C trace context, then
    baggage.
 
@@ -91,11 +94,12 @@ a value given in code would win over them, so `init` passes a setting on only wh
 is unset. `OTEL_EXPORTER_OTLP_PROTOCOL` and `OTEL_SERVICE_NAME` it reads itself.
 
 An HTTP exporter takes an endpoint given in code as it is, so `init` adds `/v1/traces` and
-`/v1/metrics` to `otlp.endpoint`. The headers go out as gRPC metadata, marked sensitive, or as
+`/v1/metrics`, and `/v1/logs`, to `otlp.endpoint`. The headers go out as gRPC metadata, marked sensitive, or as
 HTTP headers.
 
 `TelemetryGuard::shutdown(budget)` calls the tracer provider's `shutdown_with_timeout(budget)`,
-which flushes the span queue, and then the meter provider's, which exports once more. In
+which flushes the span queue, then the logger provider's with what is left of the budget, and
+then the meter provider's, which exports once more. In
 OpenTelemetry 0.33 the meter provider ignores the timeout and waits up to a fixed 5 seconds, so
 the call can take the budget plus 5 seconds. Dropping the guard does the same with a budget of 5
 seconds. Whatever isn't sent by then is lost, and `shutdown` says so with `Shutdown`.
@@ -127,7 +131,8 @@ crate's own:
 - The settings' field names and defaults are part of the public API.
 - The exporters are built without TLS in 0.1.0, so an `https` endpoint doesn't work.
 - Only `tracing` events reach the logs: no bridge from the `log` crate is installed.
-- The log lines carry the fields of the spans they are in, not the trace id.
+- The log lines on stdout carry the fields of the spans they are in, not the trace id; the OTLP
+  log records of `log.otlp` carry the trace and span ids.
 - `testing::capture` and `init` can't share a process: each installs the global subscriber.
 - Tests in one binary share what `capture` holds when they run in one process, as under
   `cargo test`. Give each test's spans and metrics names of their own.
