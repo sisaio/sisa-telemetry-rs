@@ -21,7 +21,7 @@ What the design names and a later milestone ships:
 
 | Item | Milestone |
 | --- | --- |
-| The metric catalog, and `traces.capture_sql` and `metrics.tenant_label`, the settings its instrumented crates read | 0.2.0 |
+| The metric catalog, and the settings its instrumented crates read: `traces.capture_sql` and `metrics.tenant_label` | 0.2.0 |
 | `prometheus_text()` behind a `prometheus` feature | 0.2.0 |
 | A reqwest middleware and an axum layer over `inject` and `continue_from` | 0.2.0 |
 | `log.otlp`, logs exported over OTLP as well as printed | 0.3.0 |

@@ -113,8 +113,10 @@ the key.
 | `otlp.headers` | none | Headers on every export, for a backend's API key. Their values are secret | `OTEL_EXPORTER_OTLP_HEADERS` adds to them. Set a name in one place only: for a name in both, the HTTP exporter sends the variable's value, and what the gRPC one sends isn't checked |
 | `traces.sampler` | `parentbased_traceidratio` | `always_on`, `always_off`, `traceidratio`, `parentbased_always_on`, `parentbased_always_off` or `parentbased_traceidratio`. The default respects the caller's decision and samples new traces by ratio | `OTEL_TRACES_SAMPLER`, with `OTEL_TRACES_SAMPLER_ARG` |
 | `traces.ratio` | `1.0` | The share of traces the ratio samplers keep; below 0 keeps none and above 1 keeps all. Set about `0.1` in production, and use the Collector's tail sampling to keep every error and slow trace | `OTEL_TRACES_SAMPLER_ARG`, when `OTEL_TRACES_SAMPLER` is set |
+| `traces.capture_sql` | `false` | Whether a database span carries its parameterized statement, never its bind values. The sisa crates that make database spans read it; `init` doesn't | |
 | `metrics.interval` | `30s` | How often metrics are pushed: a whole number and `ms`, `s`, `m` or `h` | `OTEL_METRIC_EXPORT_INTERVAL`, in milliseconds |
 | `metrics.cardinality_limit` | `2000` | The most attribute sets one instrument keeps; the rest share one point with the attribute `otel.metric.overflow` | |
+| `metrics.tenant_label` | `false` | Whether the metrics of the sisa crates carry `sisa.tenant`. Turn it on only where the number of tenants is small and bounded. The sisa crates that record those metrics read it; `init` doesn't | |
 | `log.format` | `json` | `json`, or `pretty` for development | |
 | `log.filter` | `info,sqlx=warn,hyper=warn` | `EnvFilter` syntax: a default level, then `target=level` pairs. It filters the traces too: a span below its level is never created. `RUST_LOG` is not read | |
 | `resource.attributes` | none | Extra resource attributes, such as the cluster and the region | `OTEL_RESOURCE_ATTRIBUTES`, key by key |
@@ -141,5 +143,5 @@ filter = "info,sqlx=warn,hyper=warn"
 "k8s.cluster.name" = "prod-eu"
 ```
 
-Keys the design names that 0.1.0 doesn't read yet, since what uses them comes later:
-`traces.capture_sql`, `metrics.tenant_label` and `log.otlp` ([roadmap](../ROADMAP.md#not-in-010)).
+A key the design names that isn't read yet, since what uses it comes later: `log.otlp`
+([roadmap](../ROADMAP.md#not-in-010)).

@@ -140,7 +140,7 @@ pub enum TracesSampler {
     ParentBasedTraceIdRatio,
 }
 
-/// `[telemetry.traces]`: trace sampling.
+/// `[telemetry.traces]`: trace sampling, and what the spans of instrumented crates carry.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(default)]
 #[non_exhaustive]
@@ -153,14 +153,19 @@ pub struct TracesSettings {
     /// and one above keeps all. 1.0 by default, which suits development; set about 0.1 in production, and let the Collector's tail sampling keep every
     /// error and slow trace.
     pub ratio: f64,
+    /// Whether a database span carries its statement, parameterized and never with its bind
+    /// values. Off by default. `init` doesn't read it: the sisa crates that make database spans
+    /// do.
+    pub capture_sql: bool,
 }
 
-// The caller's decision, and every trace that starts here.
+// The caller's decision, every trace that starts here, and no statements.
 impl Default for TracesSettings {
     fn default() -> Self {
         Self {
             sampler: TracesSampler::default(),
             ratio: 1.0,
+            capture_sql: false,
         }
     }
 }
@@ -179,14 +184,20 @@ pub struct MetricsSettings {
     /// one point with the attribute `otel.metric.overflow`: the total stays right, and the
     /// attributes of the extra sets are lost.
     pub cardinality_limit: usize,
+    /// Whether the metrics of the sisa crates carry the tenant as the attribute `sisa.tenant`.
+    /// Off by default; turn it on only where the number of tenants is small and bounded, since
+    /// each tenant multiplies the series. `init` doesn't read it: the sisa crates that record
+    /// the metrics do.
+    pub tenant_label: bool,
 }
 
-// A push every 30 seconds, and 2000 series per instrument.
+// A push every 30 seconds, 2000 series per instrument, and no tenant.
 impl Default for MetricsSettings {
     fn default() -> Self {
         Self {
             interval: Duration::from_secs(30),
             cardinality_limit: 2000,
+            tenant_label: false,
         }
     }
 }
@@ -253,7 +264,9 @@ mod tests {
             TracesSampler::ParentBasedTraceIdRatio
         );
         assert_eq!(settings.metrics.interval, Duration::from_secs(30));
+        assert!(!settings.traces.capture_sql);
         assert_eq!(settings.metrics.cardinality_limit, 2000);
+        assert!(!settings.metrics.tenant_label);
         assert_eq!(settings.log.format, LogFormat::Json);
         assert_eq!(settings.log.filter, "info,sqlx=warn,hyper=warn");
     }
@@ -262,8 +275,8 @@ mod tests {
     fn a_config_file_overrides_only_the_keys_it_names() {
         let settings: TelemetrySettings = serde_json::from_value(serde_json::json!({
             "otlp": { "endpoint": "http://collector:4318", "protocol": "http/protobuf" },
-            "traces": { "sampler": "always_on" },
-            "metrics": { "interval": "500ms" },
+            "traces": { "sampler": "always_on", "capture_sql": true },
+            "metrics": { "interval": "500ms", "tenant_label": true },
             "log": { "format": "pretty" },
             "resource": { "attributes": { "region": "eu-west-1" } },
         }))
@@ -276,8 +289,10 @@ mod tests {
         assert_eq!(settings.otlp.protocol, OtlpProtocol::HttpProtobuf);
         assert_eq!(settings.traces.sampler, TracesSampler::AlwaysOn);
         assert_eq!(settings.traces.ratio, 1.0);
+        assert!(settings.traces.capture_sql);
         assert_eq!(settings.metrics.interval, Duration::from_millis(500));
         assert_eq!(settings.metrics.cardinality_limit, 2000);
+        assert!(settings.metrics.tenant_label);
         assert_eq!(settings.log.format, LogFormat::Pretty);
         assert_eq!(settings.resource.attributes["region"], "eu-west-1");
     }
