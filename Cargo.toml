@@ -56,6 +56,10 @@ opentelemetry_sdk = { version = "0.33.1", default-features = false, features = [
 # The OTLP exporters, over gRPC (tonic) and HTTP with protobuf (a blocking reqwest client, which
 # the SDK's own export threads need), with TLS for `https` endpoints.
 opentelemetry-otlp = { version = "0.33.1", default-features = false, features = ["trace", "metrics", "grpc-tonic", "http-proto", "reqwest-blocking-client", "internal-logs"] }
+# The Prometheus reader behind the `prometheus` feature, on the same minor, and the registry and
+# text encoder it fills.
+opentelemetry-prometheus = { version = "0.33.1", default-features = false }
+prometheus = { version = "0.14.0", default-features = false }
 # Header names and values, for the OTLP headers sent over gRPC.
 http = { version = "1.3.1" }
 

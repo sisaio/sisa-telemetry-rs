@@ -48,6 +48,7 @@
 //!
 //! | Feature | Adds |
 //! | --- | --- |
+//! | `prometheus` | [`prometheus_text`]: the metrics in the Prometheus text format, for an admin port's `/metrics` |
 //! | `testing` | The `testing` module: `capture()` installs in-memory exporters, to assert on spans and metrics in tests |
 
 #![cfg_attr(docsrs, feature(doc_cfg))]
@@ -61,6 +62,8 @@ mod settings;
 pub mod testing;
 
 pub use error::TelemetryError;
+#[cfg(feature = "prometheus")]
+pub use init::prometheus_text;
 pub use init::{TelemetryGuard, init, reload_log_filter};
 pub use resource::ServiceResource;
 pub use settings::{

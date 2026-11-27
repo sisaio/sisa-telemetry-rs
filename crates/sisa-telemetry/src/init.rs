@@ -62,6 +62,11 @@ fn parse_filter(filter: &str) -> Result<EnvFilter, TelemetryError> {
     EnvFilter::try_new(filter).map_err(|error| TelemetryError::LogFilter(error.to_string()))
 }
 
+// The registry the Prometheus reader fills, which `prometheus_text` encodes. Set once, by the
+// `init` that installs the subscriber with telemetry on.
+#[cfg(feature = "prometheus")]
+static PROMETHEUS_REGISTRY: OnceLock<prometheus::Registry> = OnceLock::new();
+
 // One signal's OTLP names: its endpoint variable, and its path under an HTTP endpoint.
 struct Signal {
     endpoint_variable: &'static str,
@@ -361,6 +366,8 @@ pub fn init(
 ) -> Result<TelemetryGuard, TelemetryError> {
     let (filter, filter_handle) = reload::Layer::new(parse_filter(&settings.log.filter)?);
 
+    #[cfg(feature = "prometheus")]
+    let registry = prometheus::Registry::new();
     let providers = if settings.enabled {
         let protocol = protocol(&settings.otlp, environment)?;
         if protocol == OtlpProtocol::Grpc && tokio::runtime::Handle::try_current().is_err() {
@@ -385,10 +392,16 @@ pub fn init(
         let meter_provider = SdkMeterProvider::builder()
             .with_resource(resource)
             .with_reader(reader.build())
-            .with_view(cardinality_view(settings.metrics.cardinality_limit))
-            .build();
+            .with_view(cardinality_view(settings.metrics.cardinality_limit));
+        #[cfg(feature = "prometheus")]
+        let meter_provider = meter_provider.with_reader(
+            opentelemetry_prometheus::exporter()
+                .with_registry(registry.clone())
+                .build()
+                .map_err(|error| TelemetryError::Exporter(error.to_string()))?,
+        );
 
-        Some((tracer_provider.build(), meter_provider))
+        Some((tracer_provider.build(), meter_provider.build()))
     } else {
         None
     };
@@ -408,6 +421,8 @@ pub fn init(
     }
     if let Some(provider) = &meter_provider {
         global::set_meter_provider(provider.clone());
+        #[cfg(feature = "prometheus")]
+        PROMETHEUS_REGISTRY.get_or_init(|| registry);
     }
 
     Ok(TelemetryGuard {
@@ -439,6 +454,28 @@ pub fn reload_log_filter(filter: &str) -> Result<(), TelemetryError> {
         .ok_or(TelemetryError::NotInitialized)?
         .reload(filter)
         .map_err(|_| TelemetryError::NotInitialized)
+}
+
+/// The metrics as they stand now, in the Prometheus text exposition format, for the `/metrics`
+/// handler of an admin port. Counters get the `_total` suffix and units such as `_seconds`, as
+/// the Prometheus exporter names them; the OTLP push goes on beside it.
+///
+/// ```no_run
+/// let body = sisa_telemetry::prometheus_text();
+/// # drop(body);
+/// ```
+///
+/// It is empty before [`init`], with `enabled = false`, and under `testing::capture`.
+#[cfg(feature = "prometheus")]
+#[cfg_attr(docsrs, doc(cfg(feature = "prometheus")))]
+pub fn prometheus_text() -> String {
+    let Some(registry) = PROMETHEUS_REGISTRY.get() else {
+        return String::new();
+    };
+    // The encoder fails only on a metric family it can't name, which the exporter never makes.
+    prometheus::TextEncoder::new()
+        .encode_to_string(&registry.gather())
+        .unwrap_or_default()
 }
 
 #[cfg(test)]
