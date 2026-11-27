@@ -60,6 +60,8 @@ opentelemetry-otlp = { version = "0.33.1", default-features = false, features = 
 # text encoder it fills.
 opentelemetry-prometheus = { version = "0.33.1", default-features = false }
 prometheus = { version = "0.14.0", default-features = false }
+# Turns `tracing` events into OpenTelemetry log records, for `log.otlp`.
+opentelemetry-appender-tracing = { version = "0.33.1", default-features = false }
 # Header names and values, for the OTLP headers sent over gRPC.
 http = { version = "1.3.1" }
 

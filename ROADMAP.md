@@ -22,7 +22,6 @@ What the design names and a later milestone ships:
 | Item | Milestone |
 | --- | --- |
 | A reqwest middleware and an axum layer over `inject` and `continue_from` | 0.2.0 |
-| `log.otlp`, logs exported over OTLP as well as printed | 0.3.0 |
 | The `sisa.telemetry.export_failures` counter | Not set yet; export failures are log lines until then |
 
 ## Open questions

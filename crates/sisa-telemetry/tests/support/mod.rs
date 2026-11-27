@@ -8,7 +8,7 @@ use testcontainers::{
     runners::AsyncRunner,
 };
 
-// Receives OTLP over gRPC and HTTP, and prints every span and metric point in full.
+// Receives OTLP over gRPC and HTTP, and prints every span, metric point and log record in full.
 const CONFIG: &str = "
 receivers:
   otlp:
@@ -26,6 +26,9 @@ service:
       receivers: [otlp]
       exporters: [debug]
     metrics:
+      receivers: [otlp]
+      exporters: [debug]
+    logs:
       receivers: [otlp]
       exporters: [debug]
 ";
