@@ -35,6 +35,24 @@ constants in `sisa_telemetry_core::attributes`:
 Their values are unbounded, so they go on spans and logs, never on metrics. The actor's id uses
 the OpenTelemetry name `enduser.id`.
 
+## Log lines
+
+With `log.format = "json"`, each line on stdout is one JSON object as `tracing-subscriber` writes
+it (`timestamp`, `level`, `fields`, `target`, `span` and `spans`), with these keys added at the
+top level when the event is inside a span:
+
+| Key | Holds |
+| --- | --- |
+| `sisa.request_id`, `sisa.correlation_id`, `sisa.tenant`, `sisa.actor.type`, `enduser.id` | The value of that field on the nearest span that recorded it, as a string |
+| `trace_id`, `span_id` | The OpenTelemetry ids of the entered span, as lowercase hex, when tracing is on |
+
+A key is left out when no span holds it. A line outside every span has none of them, and the
+pretty format has none.
+
+```json
+{"timestamp":"2026-11-27T12:00:00.000000Z","level":"INFO","fields":{"message":"placed"},"target":"orders","span":{"sisa.tenant":"acme","name":"place_order"},"spans":[{"sisa.tenant":"acme","name":"place_order"}],"sisa.tenant":"acme","trace_id":"4bf92f3577b34da6a3ce929d0e0e4736","span_id":"00f067aa0ba902b7"}
+```
+
 ## Errors on spans
 
 `record_error` sets the span's status to `Error`, with the error and its sources joined by `: `

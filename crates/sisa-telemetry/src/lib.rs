@@ -53,6 +53,7 @@
 
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
+mod context;
 mod error;
 mod init;
 mod resource;
