@@ -16,9 +16,9 @@ workspace = true
 
 [features]
 default = []
-# `testing::capture()`: in-memory exporters to assert on spans and metrics in tests. For
-# dev-dependencies only.
-testing = ["opentelemetry_sdk/testing"]
+# `testing::capture()`: in-memory exporters to assert on spans and metrics in tests, and the check
+# against the metric catalog. For dev-dependencies only.
+testing = ["opentelemetry_sdk/testing", "dep:serde_json"]
 
 [dependencies]
 # The part libraries use, re-exported from this crate's root.
@@ -37,6 +37,8 @@ http = { workspace = true }
 
 thiserror = { workspace = true }
 serde = { workspace = true }
+# Reads `catalog/metrics.json` for `testing::Captured::check_catalog`.
+serde_json = { workspace = true, optional = true }
 tokio = { workspace = true }
 
 [dev-dependencies]

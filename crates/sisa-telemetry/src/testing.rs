@@ -33,6 +33,7 @@ use opentelemetry_sdk::{
     },
     trace::{InMemorySpanExporter, SdkTracerProvider},
 };
+use serde::Deserialize;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use crate::init::{cardinality_view, propagator, trace_layer};
@@ -165,6 +166,61 @@ fn captured_metric(metric: &Metric) -> CapturedMetric {
     }
 }
 
+// The attributes every catalog entry allows besides its own: the tenant, which
+// `metrics.tenant_label` adds, and the one the SDK puts on the point past the cardinality limit.
+const ALWAYS_ALLOWED: [&str; 2] = ["sisa.tenant", "otel.metric.overflow"];
+
+// One metric of `catalog/metrics.json`.
+#[derive(Deserialize)]
+struct CatalogEntry {
+    name: String,
+    unit: String,
+    attributes: Vec<String>,
+}
+
+fn catalog() -> Vec<CatalogEntry> {
+    serde_json::from_str(include_str!("../catalog/metrics.json"))
+        .expect("catalog/metrics.json is valid, as a unit test checks")
+}
+
+// What is wrong with one captured metric against the catalog, if it is one the catalog governs:
+// listed in it, or named `sisa.*`.
+fn catalog_problems(metric: &CapturedMetric, catalog: &[CatalogEntry]) -> Vec<String> {
+    let name = &metric.name;
+    let Some(entry) = catalog.iter().find(|entry| &entry.name == name) else {
+        return if name.starts_with("sisa.") {
+            vec![format!("`{name}` is not in the catalog")]
+        } else {
+            Vec::new()
+        };
+    };
+
+    let mut problems = Vec::new();
+    if metric.unit != entry.unit {
+        problems.push(format!(
+            "`{name}` has the unit `{}`, and the catalog says `{}`",
+            metric.unit, entry.unit
+        ));
+    }
+    let mut unknown: Vec<&str> = metric
+        .points
+        .iter()
+        .flat_map(|point| &point.attributes)
+        .map(|attribute| attribute.key.as_str())
+        .filter(|key| {
+            !ALWAYS_ALLOWED.contains(key) && !entry.attributes.iter().any(|allowed| allowed == key)
+        })
+        .collect();
+    unknown.sort_unstable();
+    unknown.dedup();
+    for key in unknown {
+        problems.push(format!(
+            "`{name}` has the attribute `{key}`, which the catalog doesn't allow"
+        ));
+    }
+    problems
+}
+
 /// A handle to what the test binary has recorded since [`capture`] or the last
 /// [`clear`](Self::clear).
 #[derive(Debug, Clone)]
@@ -199,6 +255,46 @@ impl Captured {
                 .find(|metric| metric.name() == name)
                 .map(captured_metric)
         })
+    }
+
+    /// Checks every metric recorded so far against the sisa metric catalog, the file
+    /// `catalog/metrics.json` in this crate, so a sisa crate's test catches a metric that
+    /// dashboards wouldn't find.
+    ///
+    /// A metric named `sisa.*`, or one the catalog lists, must be in the catalog, with its unit,
+    /// and carry only the attributes it allows, plus `sisa.tenant` and `otel.metric.overflow`.
+    /// Other metrics, such as a service's own, are left alone.
+    ///
+    /// ```
+    /// use sisa_telemetry::{instruments, opentelemetry::KeyValue, testing};
+    ///
+    /// let captured = testing::capture();
+    /// let meter = instruments::meter("sisa-lock", "0.1.0");
+    /// let lost = meter.u64_counter("sisa.lock.lost").with_unit("{lock}").build();
+    /// lost.add(1, &[KeyValue::new("sisa.lock.name", "billing")]);
+    ///
+    /// captured.check_catalog().unwrap();
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Every problem found, one per line.
+    pub fn check_catalog(&self) -> Result<(), String> {
+        _ = self.meter_provider.force_flush();
+        let exports = self.metrics.get_finished_metrics().unwrap_or_default();
+        let catalog = catalog();
+        let problems: Vec<String> = exports
+            .last()
+            .into_iter()
+            .flat_map(|export| export.scope_metrics())
+            .flat_map(|scope| scope.metrics())
+            .flat_map(|metric| catalog_problems(&captured_metric(metric), &catalog))
+            .collect();
+        if problems.is_empty() {
+            Ok(())
+        } else {
+            Err(problems.join("\n"))
+        }
     }
 
     /// Forgets the spans captured so far, and the metric exports. Instruments keep their running
@@ -248,4 +344,78 @@ fn install() -> Captured {
 /// When a global `tracing` subscriber is installed already, since no span would be captured.
 pub fn capture() -> Captured {
     CAPTURED.get_or_init(install).clone()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn metric(
+        name: &str,
+        unit: &str,
+        attributes: &[(&'static str, &'static str)],
+    ) -> CapturedMetric {
+        CapturedMetric {
+            name: name.to_owned(),
+            unit: unit.to_owned(),
+            description: String::new(),
+            points: vec![point(
+                attributes
+                    .iter()
+                    .map(|(key, value)| KeyValue::new(*key, *value))
+                    .collect(),
+                1.0,
+            )],
+        }
+    }
+
+    #[test]
+    fn the_catalog_parses_and_names_each_metric_once() {
+        let catalog = catalog();
+        let mut names: Vec<&str> = catalog.iter().map(|entry| entry.name.as_str()).collect();
+        names.sort_unstable();
+        names.dedup();
+
+        assert_eq!(names.len(), catalog.len());
+    }
+
+    #[test]
+    fn a_metric_as_the_catalog_lists_it_passes() {
+        let lost = metric(
+            "sisa.lock.lost",
+            "{lock}",
+            &[("sisa.lock.name", "billing"), ("sisa.tenant", "acme")],
+        );
+
+        assert!(catalog_problems(&lost, &catalog()).is_empty());
+    }
+
+    #[test]
+    fn a_sisa_metric_missing_from_the_catalog_fails() {
+        let unknown = metric("sisa.lock.stolen", "{lock}", &[]);
+
+        assert_eq!(catalog_problems(&unknown, &catalog()).len(), 1);
+    }
+
+    #[test]
+    fn another_unit_or_an_unknown_attribute_fails() {
+        let wrong = metric(
+            "sisa.lock.wait_duration",
+            "ms",
+            &[("sisa.lock.holder", "42")],
+        );
+
+        let problems = catalog_problems(&wrong, &catalog());
+
+        assert_eq!(problems.len(), 2);
+        assert!(problems[0].contains("`ms`"));
+        assert!(problems[1].contains("sisa.lock.holder"));
+    }
+
+    #[test]
+    fn a_service_metric_is_left_alone() {
+        let placed = metric("orders.placed", "{order}", &[("order.id", "42")]);
+
+        assert!(catalog_problems(&placed, &catalog()).is_empty());
+    }
 }

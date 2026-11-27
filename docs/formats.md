@@ -81,8 +81,13 @@ boundaries, 5 ms to 10 s, the ones the OpenTelemetry HTTP conventions recommend:
 ## Span and metric names per crate
 
 The conventions the sisa crates follow, so one dashboard reads all of them. Each crate emits its
-own; this repository holds the list. The catalog as a file, and the test that checks every
-emitted metric against it, come in 0.2.0.
+own; this repository holds the list. The metrics are also a file,
+[crates/sisa-telemetry/catalog/metrics.json](../crates/sisa-telemetry/catalog/metrics.json), with
+each metric's name, unit and allowed attributes. A sisa crate's tests call
+`testing::Captured::check_catalog()`, which fails on a `sisa.*` metric missing from the file, a
+unit that differs, or an attribute the file doesn't list. `sisa.tenant` and
+`otel.metric.overflow` are allowed on every metric. The table is the summary; the file is what a
+crate must match, and a new metric goes into both in the PR that adds it.
 
 | Crate | Span (name) | Key span attributes | Metrics (unit) | Metric attributes |
 | --- | --- | --- | --- | --- |

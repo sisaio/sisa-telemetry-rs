@@ -36,7 +36,7 @@ impl TelemetryGuard {
 #[cfg(feature = "testing")]
 pub mod testing {
     pub fn capture() -> Captured;
-    // Captured::spans(), ::span(name), ::metric(name), ::clear()
+    // Captured::spans(), ::span(name), ::metric(name), ::check_catalog(), ::clear()
 }
 ```
 
@@ -49,7 +49,7 @@ pub mod testing {
 | `ServiceResource` | The service's name and version, and optionally its namespace, environment and extra attributes |
 | `TelemetryGuard` | Flushes and shuts the providers down on drop, or with `shutdown(budget)`, where the budget bounds the wait for the spans |
 | `TelemetryError` | Why `init` or `shutdown` failed |
-| Feature `testing`: `testing::capture`, `Captured`, `CapturedMetric`, `CapturedPoint`, `SpanData` | In-memory exporters for tests, as a dev-dependency |
+| Feature `testing`: `testing::capture`, `Captured`, `CapturedMetric`, `CapturedPoint`, `SpanData` | In-memory exporters for tests, as a dev-dependency, and `check_catalog`, which checks the captured metrics against the [metric catalog](../formats.md#span-and-metric-names-per-crate) |
 
 ## Behaviour
 
@@ -103,6 +103,8 @@ the SDK's default: every new trace is kept, and a span continued from headers th
 sampled" is not. It installs no log filter and no fmt layer, so every span is created and no
 log line is printed. Later calls return
 the same handle. `Captured::metric` flushes the meter provider and reads the last export.
+`Captured::check_catalog` does the same for every metric, and compares each one named `sisa.*` or
+listed in `catalog/metrics.json`, which is compiled into the crate, with its entry there.
 
 ## Guarantees and limits
 
