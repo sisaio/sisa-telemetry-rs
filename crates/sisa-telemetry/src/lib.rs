@@ -61,7 +61,7 @@ mod settings;
 pub mod testing;
 
 pub use error::TelemetryError;
-pub use init::{TelemetryGuard, init};
+pub use init::{TelemetryGuard, init, reload_log_filter};
 pub use resource::ServiceResource;
 pub use settings::{
     LogFormat, LogSettings, MetricsSettings, OtlpProtocol, OtlpSettings, ResourceSettings,

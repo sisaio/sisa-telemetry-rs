@@ -64,6 +64,9 @@ required-features = ["testing"]
 name = "init"
 
 [[test]]
+name = "reload"
+
+[[test]]
 name = "otlp_grpc"
 
 [[test]]

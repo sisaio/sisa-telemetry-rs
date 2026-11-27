@@ -118,7 +118,7 @@ the key.
 | `metrics.cardinality_limit` | `2000` | The most attribute sets one instrument keeps; the rest share one point with the attribute `otel.metric.overflow` | |
 | `metrics.tenant_label` | `false` | Whether the metrics of the sisa crates carry `sisa.tenant`. Turn it on only where the number of tenants is small and bounded. The sisa crates that record those metrics read it; `init` doesn't | |
 | `log.format` | `json` | `json`, or `pretty` for development | |
-| `log.filter` | `info,sqlx=warn,hyper=warn` | `EnvFilter` syntax: a default level, then `target=level` pairs. It filters the traces too: a span below its level is never created. `RUST_LOG` is not read | |
+| `log.filter` | `info,sqlx=warn,hyper=warn` | `EnvFilter` syntax: a default level, then `target=level` pairs. It filters the traces too: a span below its level is never created. `reload_log_filter` replaces it at runtime. `RUST_LOG` is not read | |
 | `resource.attributes` | none | Extra resource attributes, such as the cluster and the region | `OTEL_RESOURCE_ATTRIBUTES`, key by key |
 
 ```toml

@@ -18,6 +18,8 @@ pub use sisa_telemetry_core::*;
 pub fn init(settings: &TelemetrySettings, resource: ServiceResource)
     -> Result<TelemetryGuard, TelemetryError>;
 
+pub fn reload_log_filter(filter: &str) -> Result<(), TelemetryError>;
+
 pub struct ServiceResource { /* ... */ }
 impl ServiceResource {
     pub fn new(name: &'static str, version: &'static str) -> Self;
@@ -41,6 +43,7 @@ pub mod testing {
 | Item | For |
 | --- | --- |
 | `init` | Sets everything up, once, first thing in `main` |
+| `reload_log_filter` | Replaces the `log.filter` that `init` installed, as for an admin endpoint that turns on `debug` while an incident lasts |
 | `TelemetrySettings` and `OtlpSettings`, `TracesSettings`, `MetricsSettings`, `LogSettings`, `ResourceSettings` | The `[telemetry]` section of a config file, as [Formats](../formats.md#settings) lists it. All deserialize, all have defaults, all are `#[non_exhaustive]` |
 | `OtlpProtocol`, `TracesSampler`, `LogFormat` | The values of `otlp.protocol`, `traces.sampler` and `log.format` |
 | `ServiceResource` | The service's name and version, and optionally its namespace, environment and extra attributes |
@@ -67,6 +70,10 @@ pub mod testing {
 
 With `enabled = false` only the filter and the fmt layer are installed: no provider, no
 propagator, no exporter.
+
+`init` keeps a handle to the filter it installs, and `reload_log_filter` parses a new one and
+swaps it in for the whole process, spans included. A filter that doesn't parse leaves the
+current one in place. Under `testing::capture`, or before `init`, there is no filter to swap.
 
 Where an `OTEL_*` variable matches a setting, the variable wins
 ([Formats](../formats.md#settings)). The SDK and the exporters read most of them themselves, but
@@ -117,12 +124,13 @@ crate's own:
 
 | Type | Says |
 | --- | --- |
-| `TelemetryError::LogFilter` | `log.filter` isn't valid filter syntax |
+| `TelemetryError::LogFilter` | `log.filter`, or the filter given to `reload_log_filter`, isn't valid filter syntax |
 | `TelemetryError::Header` | A name or value in `otlp.headers` can't be sent; it names the header and leaves the value out |
 | `TelemetryError::Protocol` | `OTEL_EXPORTER_OTLP_PROTOCOL` names a protocol other than `grpc` and `http/protobuf` |
 | `TelemetryError::NoRuntime` | The gRPC protocol was picked and `init` was called outside a Tokio runtime |
 | `TelemetryError::Exporter` | An exporter couldn't be built, as from an endpoint that isn't a URL |
 | `TelemetryError::AlreadyInitialized` | A global `tracing` subscriber is installed already |
+| `TelemetryError::NotInitialized` | `reload_log_filter` was called with no subscriber from `init` installed |
 | `TelemetryError::Shutdown` | A provider reported a failed or timed-out shutdown, as when the Collector is down; what it still held is lost |
 
 The enum is `#[non_exhaustive]`. A Collector that is down is not an error from `init`: export
