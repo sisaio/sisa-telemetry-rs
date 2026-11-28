@@ -55,6 +55,7 @@
       "rpc.service",
       "rpc.method",
       "rpc.grpc.status_code",
+      "http.response.status_code",
       "server.address",
       "server.port",
       "error.type"

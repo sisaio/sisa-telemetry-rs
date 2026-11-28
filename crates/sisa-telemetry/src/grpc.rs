@@ -30,13 +30,15 @@ static DURATION: LazyLock<Histogram<f64>> = LazyLock::new(|| {
 ///
 /// It wraps any tower service over `http::Request`, such as a tonic `Channel` or a tower-based
 /// Connect client. The span is named `{service}/{method}`, from the request path, and carries
-/// `rpc.system`, `rpc.service`, `rpc.method`, `server.address` and `server.port`. `rpc.system`
+/// `rpc.system`, `rpc.service`, `rpc.method`, and `server.address` and `server.port` when the
+/// request URI has an authority: a tonic channel adds it below the layer, so a generated
+/// client's calls don't carry them. `rpc.system`
 /// is `connect_rpc` for a request with an `application/connect+` content type or a
 /// `connect-protocol-version` header, and `grpc` otherwise.
 ///
 /// A `grpc-status` in the response headers is recorded as `rpc.grpc.status_code`, and any
-/// status but OK marks the span as an error, as does a Connect response of 400 or more, or no
-/// response. A status in trailers, after a streamed body, isn't read. Each call records
+/// status but OK marks the span as an error. A Connect call records its
+/// `http.response.status_code`, and 400 or more marks it as an error, as does no response. A status in trailers, after a streamed body, isn't read. Each call records
 /// `rpc.client.call.duration`, in seconds, until the response headers arrive.
 ///
 /// Without `init`, the span is a plain `tracing` span and no header is written.
@@ -84,7 +86,9 @@ where
         let path = request.uri().path().to_owned();
         let (service, method) = rpc_path(&path).unwrap_or((&path, ""));
         let (service, method) = (service.to_owned(), method.to_owned());
-        let address = request.uri().host().unwrap_or_default().to_owned();
+        // A tonic channel adds the authority below this layer, so a generated client's request
+        // may carry only the path; then there is no address to record.
+        let address = request.uri().host().map(str::to_owned);
         let port = request.uri().port_u16();
 
         let span = tracing::info_span!(
@@ -95,9 +99,10 @@ where
             rpc.system = system,
             rpc.service = service,
             rpc.method = method,
-            server.address = address,
+            server.address = address.as_deref(),
             server.port = port,
             rpc.grpc.status_code = Empty,
+            http.response.status_code = Empty,
             "error.type" = Empty,
         );
         propagation::inject(&span, &mut HeaderInjector(request.headers_mut()));
@@ -110,8 +115,10 @@ where
                 KeyValue::new("rpc.system", system),
                 KeyValue::new("rpc.service", service),
                 KeyValue::new("rpc.method", method),
-                KeyValue::new("server.address", address),
             ];
+            if let Some(address) = address {
+                attributes.push(KeyValue::new("server.address", address));
+            }
             if let Some(port) = port {
                 attributes.push(KeyValue::new("server.port", i64::from(port)));
             }
@@ -126,11 +133,17 @@ where
                         attributes.push(KeyValue::new("rpc.grpc.status_code", i64::from(code)));
                     }
                     let status = response.status().as_u16();
+                    if system == "connect_rpc" {
+                        span.record("http.response.status_code", status);
+                        attributes.push(KeyValue::new(
+                            "http.response.status_code",
+                            i64::from(status),
+                        ));
+                    }
                     match grpc_status {
-                        Some(0) => None,
+                        _ if system == "connect_rpc" && status >= 400 => Some(status.to_string()),
+                        Some(0) | None => None,
                         Some(code) => Some(code.to_string()),
-                        None if status >= 400 => Some(status.to_string()),
-                        None => None,
                     }
                 }
                 Err(_) => Some("_OTHER".to_owned()),

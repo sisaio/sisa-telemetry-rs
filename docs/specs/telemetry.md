@@ -129,7 +129,8 @@ path, writes the trace headers of that span into the request, and records
 `rpc.client.call.duration`. `rpc.system` is `connect_rpc` for a request with an
 `application/connect+` content type or a `connect-protocol-version` header, and `grpc`
 otherwise. Any `grpc-status` but OK in the response headers, a Connect response of 400 or more,
-or no response marks the span as an error. As on the server, a `grpc-status` in trailers isn't
+or no response marks the span as an error. A tonic channel adds the authority below the layer,
+so the calls of a generated client carry no `server.address` or `server.port`. As on the server, a `grpc-status` in trailers isn't
 read.
 
 Where an `OTEL_*` variable matches a setting, the variable wins
