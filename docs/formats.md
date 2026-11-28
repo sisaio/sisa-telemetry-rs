@@ -98,14 +98,20 @@ boundaries, 5 ms to 10 s, the ones the OpenTelemetry HTTP conventions recommend:
 
 ## Span and metric names per crate
 
-The conventions the sisa crates follow, so one dashboard reads all of them. Each crate emits its
-own; this repository holds the list. The metrics are also a file,
-[crates/sisa-telemetry/catalog/metrics.json](../crates/sisa-telemetry/catalog/metrics.json), with
-each metric's name, unit and allowed attributes. A sisa crate's tests call
-`testing::Captured::check_catalog()`, which fails on a `sisa.*` metric missing from the file, a
-unit that differs, or an attribute the file doesn't list. `sisa.tenant` and
-`otel.metric.overflow` are allowed on every metric. The table is the summary; the file is what a
-crate must match, and a new metric goes into both in the PR that adds it.
+The conventions the sisa crates follow, so one dashboard reads all of them. The table is the
+summary. The metrics are also files, with each metric's name, unit and allowed attributes:
+
+- Each sisa crate keeps its own `sisa.<crate>.*` metrics in its `catalog/metrics.json`, and a new
+  metric goes into that file in the PR that adds it.
+- The OpenTelemetry convention metrics that several crates share, such as
+  `http.server.request.duration`, are in
+  [crates/sisa-telemetry/catalog/metrics.json](../crates/sisa-telemetry/catalog/metrics.json). A
+  crate's file doesn't list them again.
+
+A sisa crate's tests call
+`testing::Captured::check_catalog(include_str!("../catalog/metrics.json"))`, which fails on a
+`sisa.*` metric missing from both files, a unit that differs, or an attribute the entry doesn't
+list. `sisa.tenant` and `otel.metric.overflow` are allowed on every metric.
 
 | Crate | Span (name) | Key span attributes | Metrics (unit) | Metric attributes |
 | --- | --- | --- | --- | --- |

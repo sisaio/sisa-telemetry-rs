@@ -170,17 +170,37 @@ fn captured_metric(metric: &Metric) -> CapturedMetric {
 // `metrics.tenant_label` adds, and the one the SDK puts on the point past the cardinality limit.
 const ALWAYS_ALLOWED: [&str; 2] = ["sisa.tenant", "otel.metric.overflow"];
 
-// One metric of `catalog/metrics.json`.
-#[derive(Deserialize)]
+// One metric of a catalog file.
+#[derive(Debug, Deserialize)]
 struct CatalogEntry {
     name: String,
     unit: String,
     attributes: Vec<String>,
 }
 
-fn catalog() -> Vec<CatalogEntry> {
+// The OpenTelemetry convention metrics several sisa crates share, from this crate's
+// `catalog/metrics.json`.
+fn shared_catalog() -> Vec<CatalogEntry> {
     serde_json::from_str(include_str!("../catalog/metrics.json"))
         .expect("catalog/metrics.json is valid, as a unit test checks")
+}
+
+// The shared entries and a crate's own, or what is wrong with the crate's file: JSON that
+// doesn't parse, or an entry the shared catalog has already.
+fn catalog(crate_catalog: &str) -> Result<Vec<CatalogEntry>, String> {
+    let own: Vec<CatalogEntry> = serde_json::from_str(crate_catalog)
+        .map_err(|error| format!("the crate's catalog isn't valid: {error}"))?;
+    let mut catalog = shared_catalog();
+    let repeated: Vec<String> = own
+        .iter()
+        .filter(|entry| catalog.iter().any(|shared| shared.name == entry.name))
+        .map(|entry| format!("`{}` is in the shared catalog already", entry.name))
+        .collect();
+    if !repeated.is_empty() {
+        return Err(repeated.join("\n"));
+    }
+    catalog.extend(own);
+    Ok(catalog)
 }
 
 // What is wrong with one captured metric against the catalog, if it is one the catalog governs:
@@ -257,9 +277,14 @@ impl Captured {
         })
     }
 
-    /// Checks every metric recorded so far against the sisa metric catalog, the file
-    /// `catalog/metrics.json` in this crate, so a sisa crate's test catches a metric that
-    /// dashboards wouldn't find.
+    /// Checks every metric recorded so far against the metric catalog, so a sisa crate's test
+    /// catches a metric that dashboards wouldn't find.
+    ///
+    /// The catalog is `crate_catalog`, the JSON of the calling crate's own
+    /// `catalog/metrics.json`, together with the OpenTelemetry convention metrics the sisa crates
+    /// share, which this crate holds. Each entry has a `name`, a `unit` and the `attributes` it
+    /// allows. A crate's file lists its `sisa.<crate>.*` metrics and must not list a shared one
+    /// again.
     ///
     /// A metric named `sisa.*`, or one the catalog lists, must be in the catalog, with its unit,
     /// and carry only the attributes it allows, plus `sisa.tenant` and `otel.metric.overflow`.
@@ -273,16 +298,18 @@ impl Captured {
     /// let lost = meter.u64_counter("sisa.lock.lost").with_unit("{lock}").build();
     /// lost.add(1, &[KeyValue::new("sisa.lock.name", "billing")]);
     ///
-    /// captured.check_catalog().unwrap();
+    /// // In a sisa crate: `include_str!("../catalog/metrics.json")`.
+    /// let catalog = r#"[{ "name": "sisa.lock.lost", "unit": "{lock}", "attributes": ["sisa.lock.name"] }]"#;
+    /// captured.check_catalog(catalog).unwrap();
     /// ```
     ///
     /// # Errors
     ///
-    /// Every problem found, one per line.
-    pub fn check_catalog(&self) -> Result<(), String> {
+    /// Every problem found, one per line, or what is wrong with `crate_catalog`.
+    pub fn check_catalog(&self, crate_catalog: &str) -> Result<(), String> {
+        let catalog = catalog(crate_catalog)?;
         _ = self.meter_provider.force_flush();
         let exports = self.metrics.get_finished_metrics().unwrap_or_default();
-        let catalog = catalog();
         let problems: Vec<String> = exports
             .last()
             .into_iter()
@@ -369,9 +396,19 @@ mod tests {
         }
     }
 
+    // A crate's own catalog, as sisa-lock would keep it.
+    const LOCK_CATALOG: &str = r#"[
+        { "name": "sisa.lock.lost", "unit": "{lock}", "attributes": ["sisa.lock.name"] },
+        { "name": "sisa.lock.wait_duration", "unit": "s", "attributes": ["sisa.lock.name"] }
+    ]"#;
+
+    fn lock_catalog() -> Vec<CatalogEntry> {
+        catalog(LOCK_CATALOG).unwrap()
+    }
+
     #[test]
-    fn the_catalog_parses_and_names_each_metric_once() {
-        let catalog = catalog();
+    fn the_shared_catalog_parses_and_names_each_metric_once() {
+        let catalog = shared_catalog();
         let mut names: Vec<&str> = catalog.iter().map(|entry| entry.name.as_str()).collect();
         names.sort_unstable();
         names.dedup();
@@ -387,14 +424,14 @@ mod tests {
             &[("sisa.lock.name", "billing"), ("sisa.tenant", "acme")],
         );
 
-        assert!(catalog_problems(&lost, &catalog()).is_empty());
+        assert!(catalog_problems(&lost, &lock_catalog()).is_empty());
     }
 
     #[test]
     fn a_sisa_metric_missing_from_the_catalog_fails() {
         let unknown = metric("sisa.lock.stolen", "{lock}", &[]);
 
-        assert_eq!(catalog_problems(&unknown, &catalog()).len(), 1);
+        assert_eq!(catalog_problems(&unknown, &lock_catalog()).len(), 1);
     }
 
     #[test]
@@ -405,7 +442,7 @@ mod tests {
             &[("sisa.lock.holder", "42")],
         );
 
-        let problems = catalog_problems(&wrong, &catalog());
+        let problems = catalog_problems(&wrong, &lock_catalog());
 
         assert_eq!(problems.len(), 2);
         assert!(problems[0].contains("`ms`"));
@@ -416,6 +453,19 @@ mod tests {
     fn a_service_metric_is_left_alone() {
         let placed = metric("orders.placed", "{order}", &[("order.id", "42")]);
 
-        assert!(catalog_problems(&placed, &catalog()).is_empty());
+        assert!(catalog_problems(&placed, &lock_catalog()).is_empty());
+    }
+
+    #[test]
+    fn a_crate_catalog_that_repeats_a_shared_metric_or_doesnt_parse_fails() {
+        let repeated =
+            r#"[{ "name": "http.server.request.duration", "unit": "s", "attributes": [] }]"#;
+
+        assert!(
+            catalog(repeated)
+                .unwrap_err()
+                .contains("http.server.request.duration")
+        );
+        assert!(catalog("not json").is_err());
     }
 }

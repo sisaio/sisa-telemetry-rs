@@ -49,7 +49,7 @@ pub mod http {
 #[cfg(feature = "testing")]
 pub mod testing {
     pub fn capture() -> Captured;
-    // Captured::spans(), ::span(name), ::metric(name), ::check_catalog(), ::clear()
+    // Captured::spans(), ::span(name), ::metric(name), ::check_catalog(crate_catalog), ::clear()
 }
 ```
 
@@ -63,9 +63,7 @@ pub mod testing {
 | `TelemetryGuard` | Flushes and shuts the providers down on drop, or with `shutdown(budget)`, where the budget bounds the wait for the spans |
 | `TelemetryError` | Why `init` or `shutdown` failed |
 | Feature `prometheus`: `prometheus_text` | The metrics in the Prometheus text format, for an admin port's `/metrics` handler |
-| Feature `reqwest`: `http::TracingMiddleware` | A client span on each reqwest call, with the trace headers written into the request |
-| Feature `axum`: `http::TraceLayer` | A server span on each request, continuing the caller's trace, for axum and tonic; gRPC and Connect calls follow the RPC conventions |
-| Feature `testing`: `testing::capture`, `Captured`, `CapturedMetric`, `CapturedPoint`, `SpanData` | In-memory exporters for tests, as a dev-dependency, and `check_catalog`, which checks the captured metrics against the [metric catalog](../formats.md#span-and-metric-names-per-crate) |
+| Feature `testing`: `testing::capture`, `Captured`, `CapturedMetric`, `CapturedPoint`, `SpanData` | In-memory exporters for tests, as a dev-dependency, and `check_catalog`, which checks the captured metrics against the calling crate's [metric catalog](../formats.md#span-and-metric-names-per-crate) and the shared one |
 
 ## Behaviour
 
@@ -149,7 +147,10 @@ sampled" is not. It installs no log filter and no fmt layer, so every span is cr
 log line is printed. Later calls return
 the same handle. `Captured::metric` flushes the meter provider and reads the last export.
 `Captured::check_catalog` does the same for every metric, and compares each one named `sisa.*` or
-listed in `catalog/metrics.json`, which is compiled into the crate, with its entry there.
+listed in the catalog with its entry there. The catalog is the calling crate's own file, passed
+in as JSON, and the shared convention metrics in this crate's `catalog/metrics.json`, which is
+compiled in. A crate file that doesn't parse, or lists a shared metric again, fails the check
+before any metric is compared.
 
 ## Guarantees and limits
 

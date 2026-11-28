@@ -74,7 +74,8 @@ async fn a_call_through_the_middleware_continues_on_the_server() {
     assert!(captured.metric("http.client.request.duration").is_some());
     let server_duration = captured.metric("http.server.request.duration").unwrap();
     assert_eq!(server_duration.unit, "s");
-    captured.check_catalog().unwrap();
+    // The HTTP metrics are shared conventions, so this crate adds no catalog of its own.
+    captured.check_catalog("[]").unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -127,7 +128,8 @@ async fn a_grpc_call_follows_the_rpc_conventions() {
     );
     assert!(matches!(span.status, Status::Error { .. }));
     assert!(captured.metric("rpc.server.call.duration").is_some());
-    captured.check_catalog().unwrap();
+    // The HTTP metrics are shared conventions, so this crate adds no catalog of its own.
+    captured.check_catalog("[]").unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread")]
