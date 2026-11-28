@@ -48,13 +48,18 @@
 //!
 //! | Feature | Adds |
 //! | --- | --- |
+//! | `axum` | `http::TraceLayer`: a server span that continues the caller's trace, for axum and tonic, gRPC and Connect included |
 //! | `prometheus` | [`prometheus_text`]: the metrics in the Prometheus text format, for an admin port's `/metrics` |
+//! | `reqwest` | `http::TracingMiddleware`: a client span and the trace headers on every reqwest call |
 //! | `testing` | The `testing` module: `capture()` installs in-memory exporters, to assert on spans and metrics in tests |
 
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
 mod context;
 mod error;
+#[cfg(any(feature = "reqwest", feature = "axum"))]
+#[cfg_attr(docsrs, doc(cfg(any(feature = "reqwest", feature = "axum"))))]
+pub mod http;
 mod init;
 mod resource;
 mod settings;

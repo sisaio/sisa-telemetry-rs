@@ -169,7 +169,19 @@ propagation::continue_from(&span, &ReadHeaders(request.headers()));
 next.run(request).instrument(span).await
 ```
 
-A reqwest middleware and an axum layer that do this are planned for 0.2.0.
+With the `reqwest` and `axum` features, `http::TracingMiddleware` and `http::TraceLayer` do this,
+with the span names, attributes and duration metrics of the OpenTelemetry conventions.
+`TraceLayer` also serves tonic, through `Server::builder().layer`, and gives gRPC and Connect
+calls the RPC conventions.
+
+```rust
+let client = reqwest_middleware::ClientBuilder::new(reqwest::Client::new())
+    .with(sisa_telemetry::http::TracingMiddleware::default())
+    .build();
+let app = axum::Router::new()
+    .route("/orders", get(list_orders))
+    .layer(sisa_telemetry::http::TraceLayer::default());
+```
 
 Test: `a_server_span_continues_the_callers_trace`.
 

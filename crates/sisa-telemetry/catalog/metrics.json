@@ -5,7 +5,30 @@
     "attributes": [
       "http.request.method",
       "http.route",
-      "http.response.status_code"
+      "http.response.status_code",
+      "error.type"
+    ]
+  },
+  {
+    "name": "http.client.request.duration",
+    "unit": "s",
+    "attributes": [
+      "http.request.method",
+      "server.address",
+      "server.port",
+      "http.response.status_code",
+      "error.type"
+    ]
+  },
+  {
+    "name": "rpc.server.call.duration",
+    "unit": "s",
+    "attributes": [
+      "rpc.system",
+      "rpc.service",
+      "rpc.method",
+      "rpc.grpc.status_code",
+      "error.type"
     ]
   },
   {

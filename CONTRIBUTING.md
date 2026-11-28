@@ -47,7 +47,7 @@ dependency change updates the lock file on purpose and commits it.
 cargo fmt --all --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
-(set -e; for f in "" testing prometheus; do cargo check -p sisa-telemetry --features "$f" --locked; done)
+(set -e; for f in "" testing prometheus reqwest axum; do cargo check -p sisa-telemetry --features "$f" --locked; done)
 cargo tree -i opentelemetry --all-features --edges normal --locked > /dev/null
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --all-features --locked
 cargo +1.89 check --workspace --all-targets --all-features --locked
