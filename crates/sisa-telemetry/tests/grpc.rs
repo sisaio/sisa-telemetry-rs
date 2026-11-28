@@ -1,11 +1,17 @@
 //! The gRPC client layer: a call through `TraceClientLayer` to a server behind `TraceLayer` is
 //! one trace, for gRPC and for Connect.
 
-use std::future::poll_fn;
+use std::{
+    future::poll_fn,
+    task::{Context, Poll},
+};
 
 use axum::{Router, body::Bytes, http::HeaderMap, routing::post};
 use http_body_util::Full;
-use hyper_util::{client::legacy::Client, rt::TokioExecutor};
+use hyper_util::{
+    client::legacy::{Client, ResponseFuture, connect::HttpConnector},
+    rt::TokioExecutor,
+};
 use sisa_telemetry::{
     grpc::TraceClientLayer,
     http::TraceLayer,
@@ -51,6 +57,60 @@ async fn call(url: String, headers: &[(&'static str, &'static str)]) -> u16 {
         .expect("the client is ready");
     let response = service.call(request).await.expect("the server answers");
     response.status().as_u16()
+}
+
+// Adds the origin to a path-only request, below the layer, as a tonic channel does.
+struct AddOrigin {
+    client: Client<HttpConnector, Full<Bytes>>,
+    origin: String,
+}
+
+impl Service<axum::http::Request<Full<Bytes>>> for AddOrigin {
+    type Response =
+        <Client<HttpConnector, Full<Bytes>> as Service<axum::http::Request<Full<Bytes>>>>::Response;
+    type Error = hyper_util::client::legacy::Error;
+    type Future = ResponseFuture;
+
+    fn poll_ready(&mut self, context: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        Service::<axum::http::Request<Full<Bytes>>>::poll_ready(&mut self.client, context)
+    }
+
+    fn call(&mut self, mut request: axum::http::Request<Full<Bytes>>) -> Self::Future {
+        let url = format!("{}{}", self.origin, request.uri());
+        *request.uri_mut() = url.parse().expect("a valid URL");
+        self.client.request(request)
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_path_only_call_records_the_server_the_layer_names() {
+    let captured = testing::capture();
+    let base = serve(Router::new().route("/shop.Orders/Ship", post(|| async { "" }))).await;
+    let origin = AddOrigin {
+        client: Client::builder(TokioExecutor::new()).build_http::<Full<Bytes>>(),
+        origin: base,
+    };
+    let mut service = TraceClientLayer::for_server("orders", 50051).layer(origin);
+    let request = axum::http::Request::post("/shop.Orders/Ship")
+        .header("content-type", "application/grpc")
+        .body(Full::new(Bytes::new()))
+        .expect("a valid request");
+
+    poll_fn(|context| service.poll_ready(context))
+        .await
+        .expect("the client is ready");
+    service.call(request).await.expect("the server answers");
+
+    let client = captured
+        .spans()
+        .into_iter()
+        .find(|span| span.name == "shop.Orders/Ship" && span.span_kind == SpanKind::Client)
+        .unwrap();
+    assert_eq!(
+        attribute(&client, "server.address").as_deref(),
+        Some("orders")
+    );
+    assert_eq!(attribute(&client, "server.port").as_deref(), Some("50051"));
 }
 
 #[tokio::test(flavor = "multi_thread")]

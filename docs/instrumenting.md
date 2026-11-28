@@ -183,7 +183,7 @@ let app = axum::Router::new()
     .route("/orders", get(list_orders))
     .layer(sisa_telemetry::http::TraceLayer::default());
 let channel = tower::ServiceBuilder::new()
-    .layer(sisa_telemetry::grpc::TraceClientLayer::default())
+    .layer(sisa_telemetry::grpc::TraceClientLayer::for_server("orders", 50051))
     .service(Channel::from_static("http://orders:50051").connect_lazy());
 ```
 
