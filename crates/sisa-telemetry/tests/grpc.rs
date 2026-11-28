@@ -129,5 +129,34 @@ async fn a_connect_call_is_named_after_its_method() {
         attribute(&client, "rpc.system").as_deref(),
         Some("connect_rpc")
     );
+    assert_eq!(
+        attribute(&client, "http.response.status_code").as_deref(),
+        Some("200")
+    );
     assert_eq!(client.status, Status::Unset);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_connect_error_marks_the_span_whatever_grpc_status_says() {
+    let captured = testing::capture();
+    let unavailable = || async {
+        let mut headers = HeaderMap::new();
+        headers.insert("grpc-status", "0".parse().unwrap());
+        (axum::http::StatusCode::SERVICE_UNAVAILABLE, headers)
+    };
+    let base = serve(Router::new().route("/shop.Orders/Cancel", post(unavailable))).await;
+
+    call(
+        format!("{base}/shop.Orders/Cancel"),
+        &[("content-type", "application/connect+json")],
+    )
+    .await;
+
+    let client = captured
+        .spans()
+        .into_iter()
+        .find(|span| span.name == "shop.Orders/Cancel" && span.span_kind == SpanKind::Client)
+        .unwrap();
+    assert!(matches!(client.status, Status::Error { .. }));
+    assert_eq!(attribute(&client, "error.type").as_deref(), Some("503"));
 }
