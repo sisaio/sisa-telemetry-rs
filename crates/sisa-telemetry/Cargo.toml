@@ -23,6 +23,12 @@ testing = ["opentelemetry_sdk/testing", "dep:serde_json"]
 # `prometheus_text()`: the metrics in the Prometheus text format, for an admin port's `/metrics`.
 prometheus = ["dep:opentelemetry-prometheus", "dep:prometheus"]
 
+# `http::TracingMiddleware`: a client span and the trace headers on every reqwest call.
+reqwest = ["dep:reqwest-middleware", "dep:async-trait"]
+
+# `http::TraceLayer`: a server span that continues the caller's trace, for axum and tonic.
+axum = ["dep:axum", "dep:tower-layer", "dep:tower-service"]
+
 [dependencies]
 # The part libraries use, re-exported from this crate's root.
 sisa-telemetry-core = { workspace = true }
@@ -41,6 +47,11 @@ opentelemetry-appender-tracing = { workspace = true }
 http = { workspace = true }
 opentelemetry-prometheus = { workspace = true, optional = true }
 prometheus = { workspace = true, optional = true }
+reqwest-middleware = { workspace = true, optional = true }
+async-trait = { workspace = true, optional = true }
+axum = { workspace = true, optional = true, features = ["matched-path"] }
+tower-layer = { workspace = true, optional = true }
+tower-service = { workspace = true, optional = true }
 
 thiserror = { workspace = true }
 serde = { workspace = true }
@@ -55,6 +66,9 @@ serde_json = { workspace = true }
 opentelemetry_sdk = { workspace = true, features = ["testing", "logs"] }
 # The OpenTelemetry Collector the OTLP tests export to.
 testcontainers = { workspace = true }
+# A server and a client for the tests of the HTTP helpers.
+axum = { workspace = true, features = ["tokio", "http1", "matched-path"] }
+reqwest-middleware = { workspace = true }
 
 # The capture tests need the `testing` feature.
 [[test]]
@@ -80,6 +94,10 @@ name = "reload"
 [[test]]
 name = "prometheus"
 required-features = ["prometheus"]
+
+[[test]]
+name = "http"
+required-features = ["testing", "reqwest", "axum"]
 
 [[test]]
 name = "otlp_grpc"

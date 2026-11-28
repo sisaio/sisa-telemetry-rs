@@ -109,7 +109,9 @@ crate must match, and a new metric goes into both in the PR that adds it.
 
 | Crate | Span (name) | Key span attributes | Metrics (unit) | Metric attributes |
 | --- | --- | --- | --- | --- |
-| HTTP server (axum) | `{method} {route}`, per the OpenTelemetry HTTP conventions | `http.request.method`, `http.route`, `http.response.status_code` | `http.server.request.duration` (s, histogram) | method, route, status class |
+| HTTP server (`http::TraceLayer`) | `{method} {route}`, per the OpenTelemetry HTTP conventions | `http.request.method`, `http.route`, `url.path`, `http.response.status_code`, `error.type` | `http.server.request.duration` (s, histogram) | method, route, status code, error type |
+| gRPC and Connect server (`http::TraceLayer`) | `{service}/{method}`, per the OpenTelemetry RPC conventions | `rpc.system` (`grpc`, `connect_rpc`), `rpc.service`, `rpc.method`, `rpc.grpc.status_code`, `error.type` | `rpc.server.call.duration` (s, histogram) | system, service, method, gRPC status, error type |
+| HTTP client (`http::TracingMiddleware`) | `{method}`, per the OpenTelemetry HTTP conventions | `http.request.method`, `server.address`, `server.port`, `url.full` without credentials, query or fragment, `http.response.status_code`, `error.type` | `http.client.request.duration` (s, histogram) | method, server address and port, status code, error type |
 | sqlx | `db {operation} {table}` | `db.system.name=postgresql`, `db.operation.name`, `db.collection.name`; the statement only with `capture_sql` | `db.client.operation.duration` (s); `sisa.db.pool.in_use`, `.idle`, `.wait_duration` | operation, pool |
 | sisa-idempotency | `idempotency.claim` | `sisa.idempotency.outcome` (`acquired`, `replay`, `in_progress`, `mismatch`) | `sisa.idempotency.outcomes` (count) | outcome, route |
 | sisa-ratelimit | `ratelimit.check` | policy, decision, cost | `sisa.ratelimit.decisions` (count), `.check.duration` (s) | policy, decision |

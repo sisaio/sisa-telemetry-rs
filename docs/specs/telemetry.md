@@ -36,6 +36,16 @@ impl TelemetryGuard {
 #[cfg(feature = "prometheus")]
 pub fn prometheus_text() -> String;
 
+#[cfg(any(feature = "reqwest", feature = "axum"))]
+pub mod http {
+    #[cfg(feature = "reqwest")]
+    pub struct TracingMiddleware; // impl reqwest_middleware::Middleware, Default
+    #[cfg(feature = "axum")]
+    pub struct TraceLayer; // impl tower::Layer<S>, Default
+    #[cfg(feature = "axum")]
+    pub struct TraceService<S> { /* ... */ } // impl tower::Service<http::Request<B>>
+}
+
 #[cfg(feature = "testing")]
 pub mod testing {
     pub fn capture() -> Captured;
@@ -53,6 +63,8 @@ pub mod testing {
 | `TelemetryGuard` | Flushes and shuts the providers down on drop, or with `shutdown(budget)`, where the budget bounds the wait for the spans |
 | `TelemetryError` | Why `init` or `shutdown` failed |
 | Feature `prometheus`: `prometheus_text` | The metrics in the Prometheus text format, for an admin port's `/metrics` handler |
+| Feature `reqwest`: `http::TracingMiddleware` | A client span on each reqwest call, with the trace headers written into the request |
+| Feature `axum`: `http::TraceLayer` | A server span on each request, continuing the caller's trace, for axum and tonic; gRPC and Connect calls follow the RPC conventions |
 | Feature `testing`: `testing::capture`, `Captured`, `CapturedMetric`, `CapturedPoint`, `SpanData` | In-memory exporters for tests, as a dev-dependency, and `check_catalog`, which checks the captured metrics against the [metric catalog](../formats.md#span-and-metric-names-per-crate) |
 
 ## Behaviour
@@ -89,6 +101,23 @@ current one in place. Under `testing::capture`, or before `init`, there is no fi
 `prometheus_text` returns an empty string when no `init` with `enabled = true` has run, as
 under `testing::capture`. The Prometheus exporter adds `_total` to counters and the unit to the
 name, such as `_seconds`, and the scope as `otel_scope_name`.
+
+`TracingMiddleware` opens a client span per request, named after the method, writes the trace
+headers of that span into the request, and records `http.client.request.duration`. `url.full`
+leaves out the credentials, the query and the fragment, which can carry secrets. A status of 400
+or more, or no response, marks the span as an error.
+
+`TraceLayer` opens a server span per request and continues the caller's trace from its headers
+before the inner service runs. A request is an RPC call when its content type starts with
+`application/grpc` (`rpc.system=grpc`) or `application/connect+`, or it has a
+`connect-protocol-version` header (`connect_rpc`), and its path is `/{service}/{method}`. An RPC
+span is named `{service}/{method}` and records `rpc.server.call.duration`; any other request is
+named `{method} {route}`, with the route axum matched, and records `http.server.request.duration`.
+A 5xx status, or for gRPC a `grpc-status` in the response headers of UNKNOWN, DEADLINE_EXCEEDED,
+UNIMPLEMENTED, INTERNAL, UNAVAILABLE or DATA_LOSS, marks the span as an error. A `grpc-status`
+sent in trailers after a streamed body isn't read. The RPC metric leaves out `rpc.service` and
+`rpc.method` for UNIMPLEMENTED, since those then come from the caller and are unbounded.
+Durations run until the response headers are ready, not until the body is sent.
 
 Where an `OTEL_*` variable matches a setting, the variable wins
 ([Formats](../formats.md#settings)). The SDK and the exporters read most of them themselves, but
