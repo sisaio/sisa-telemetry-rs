@@ -48,7 +48,10 @@ pub mod http {
 
 #[cfg(feature = "tonic")]
 pub mod grpc {
-    pub struct TraceClientLayer; // impl tower::Layer<S>, Default
+    pub struct TraceClientLayer { /* ... */ } // impl tower::Layer<S>, Default
+    impl TraceClientLayer {
+        pub fn for_server(address: impl Into<Arc<str>>, port: u16) -> Self;
+    }
     pub struct TraceClientService<S> { /* ... */ } // impl tower::Service<http::Request<B>>
 }
 
@@ -130,7 +133,9 @@ path, writes the trace headers of that span into the request, and records
 `application/connect+` content type or a `connect-protocol-version` header, and `grpc`
 otherwise. Any `grpc-status` but OK in the response headers, a Connect response of 400 or more,
 or no response marks the span as an error. A tonic channel adds the authority below the layer,
-so the calls of a generated client carry no `server.address` or `server.port`. As on the server, a `grpc-status` in trailers isn't
+so the calls of a generated client carry only a path: a layer made with `for_server` records the
+server it names as `server.address` and `server.port`, and one made with `default` records
+neither. A URI with an authority wins over the named server. As on the server, a `grpc-status` in trailers isn't
 read.
 
 Where an `OTEL_*` variable matches a setting, the variable wins

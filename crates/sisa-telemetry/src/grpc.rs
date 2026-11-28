@@ -5,7 +5,7 @@
 use std::{
     future::Future,
     pin::Pin,
-    sync::LazyLock,
+    sync::{Arc, LazyLock},
     task::{Context, Poll},
     time::Instant,
 };
@@ -30,34 +30,61 @@ static DURATION: LazyLock<Histogram<f64>> = LazyLock::new(|| {
 ///
 /// It wraps any tower service over `http::Request`, such as a tonic `Channel` or a tower-based
 /// Connect client. The span is named `{service}/{method}`, from the request path, and carries
-/// `rpc.system`, `rpc.service`, `rpc.method`, and `server.address` and `server.port` when the
-/// request URI has an authority: a tonic channel adds it below the layer, so a generated
-/// client's calls don't carry them. `rpc.system`
-/// is `connect_rpc` for a request with an `application/connect+` content type or a
+/// `rpc.system`, `rpc.service`, `rpc.method`, `server.address` and `server.port`. The address
+/// and port come from the request URI when it has an authority. A tonic channel adds the
+/// authority below the layer, so a generated client's calls carry only a path: name the server
+/// with [`for_server`](Self::for_server) to record it for them. `rpc.system` is `connect_rpc` for a request with an `application/connect+` content type or a
 /// `connect-protocol-version` header, and `grpc` otherwise.
 ///
 /// A `grpc-status` in the response headers is recorded as `rpc.grpc.status_code`, and any
 /// status but OK marks the span as an error. A Connect call records its
-/// `http.response.status_code`, and 400 or more marks it as an error, as does no response. A status in trailers, after a streamed body, isn't read. Each call records
+/// `http.response.status_code`, and 400 or more marks it as an error, as does no response. A
+/// status in trailers, after a streamed body, isn't read. Each call records
 /// `rpc.client.call.duration`, in seconds, until the response headers arrive.
 ///
 /// Without `init`, the span is a plain `tracing` span and no header is written.
 ///
 /// ```ignore
 /// let channel = tower::ServiceBuilder::new()
-///     .layer(sisa_telemetry::grpc::TraceClientLayer::default())
+///     .layer(sisa_telemetry::grpc::TraceClientLayer::for_server("orders", 50051))
 ///     .service(tonic::transport::Channel::from_static("http://orders:50051").connect_lazy());
 /// let client = OrdersClient::new(channel);
 /// ```
-#[derive(Clone, Copy, Debug, Default)]
-#[non_exhaustive]
-pub struct TraceClientLayer;
+#[derive(Clone, Debug, Default)]
+pub struct TraceClientLayer {
+    server: Option<Server>,
+}
+
+// The server a layer was named for, for requests whose URI carries only a path.
+#[derive(Clone, Debug)]
+struct Server {
+    address: Arc<str>,
+    port: u16,
+}
+
+impl TraceClientLayer {
+    /// A layer for the calls to one server, which records `address` and `port` as
+    /// `server.address` and `server.port` when a request URI has no authority, as a tonic
+    /// channel's requests don't. A URI that has one wins.
+    pub fn for_server(address: impl Into<Arc<str>>, port: u16) -> Self {
+        let server = Server {
+            address: address.into(),
+            port,
+        };
+        Self {
+            server: Some(server),
+        }
+    }
+}
 
 impl<S> tower_layer::Layer<S> for TraceClientLayer {
     type Service = TraceClientService<S>;
 
     fn layer(&self, inner: S) -> Self::Service {
-        TraceClientService { inner }
+        TraceClientService {
+            inner,
+            server: self.server.clone(),
+        }
     }
 }
 
@@ -65,6 +92,7 @@ impl<S> tower_layer::Layer<S> for TraceClientLayer {
 #[derive(Clone, Debug)]
 pub struct TraceClientService<S> {
     inner: S,
+    server: Option<Server>,
 }
 
 impl<S, B, R> tower_service::Service<Request<B>> for TraceClientService<S>
@@ -87,9 +115,12 @@ where
         let (service, method) = rpc_path(&path).unwrap_or((&path, ""));
         let (service, method) = (service.to_owned(), method.to_owned());
         // A tonic channel adds the authority below this layer, so a generated client's request
-        // may carry only the path; then there is no address to record.
-        let address = request.uri().host().map(str::to_owned);
-        let port = request.uri().port_u16();
+        // may carry only the path; then the server the layer was named for is the one called.
+        let (address, port) = match (request.uri().host(), &self.server) {
+            (Some(host), _) => (Some(host.to_owned()), request.uri().port_u16()),
+            (None, Some(server)) => (Some(server.address.to_string()), Some(server.port)),
+            (None, None) => (None, None),
+        };
 
         let span = tracing::info_span!(
             "RPC call",
