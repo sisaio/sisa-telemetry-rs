@@ -10,7 +10,7 @@ use reqwest_middleware::{
 use sisa_telemetry_core::{instruments, propagation, record_error};
 use tracing::{Instrument, field::Empty};
 
-use super::{HeaderInjector, METER, method_name};
+use crate::carrier::{HeaderInjector, METER, method_name};
 
 static DURATION: LazyLock<Histogram<f64>> = LazyLock::new(|| {
     instruments::duration_histogram(

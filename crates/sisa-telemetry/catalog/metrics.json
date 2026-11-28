@@ -46,5 +46,18 @@
       "messaging.destination.name",
       "sisa.messaging.outcome"
     ]
+  },
+  {
+    "name": "rpc.client.call.duration",
+    "unit": "s",
+    "attributes": [
+      "rpc.system",
+      "rpc.service",
+      "rpc.method",
+      "rpc.grpc.status_code",
+      "server.address",
+      "server.port",
+      "error.type"
+    ]
   }
 ]

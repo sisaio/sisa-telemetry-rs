@@ -29,6 +29,10 @@ reqwest = ["dep:reqwest-middleware", "dep:async-trait"]
 # `http::TraceLayer`: a server span that continues the caller's trace, for axum and tonic.
 axum = ["dep:axum", "dep:tower-layer", "dep:tower-service"]
 
+# `grpc::TraceClientLayer`: a client span and the trace headers on outgoing gRPC and Connect
+# calls, for a tonic channel or a tower-based Connect client.
+tonic = ["dep:tower-layer", "dep:tower-service"]
+
 [dependencies]
 # The part libraries use, re-exported from this crate's root.
 sisa-telemetry-core = { workspace = true }
@@ -69,6 +73,9 @@ testcontainers = { workspace = true }
 # A server and a client for the tests of the HTTP helpers.
 axum = { workspace = true, features = ["tokio", "http1", "matched-path"] }
 reqwest-middleware = { workspace = true }
+# A tower HTTP/2 client, as a tonic channel is, for the tests of the gRPC client layer.
+hyper-util = { workspace = true }
+http-body-util = { workspace = true }
 
 # The capture tests need the `testing` feature.
 [[test]]
@@ -98,6 +105,10 @@ required-features = ["prometheus"]
 [[test]]
 name = "http"
 required-features = ["testing", "reqwest", "axum"]
+
+[[test]]
+name = "grpc"
+required-features = ["testing", "tonic", "axum"]
 
 [[test]]
 name = "otlp_grpc"

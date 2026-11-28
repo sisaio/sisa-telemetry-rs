@@ -51,12 +51,18 @@
 //! | `axum` | `http::TraceLayer`: a server span that continues the caller's trace, for axum and tonic, gRPC and Connect included |
 //! | `prometheus` | [`prometheus_text`]: the metrics in the Prometheus text format, for an admin port's `/metrics` |
 //! | `reqwest` | `http::TracingMiddleware`: a client span and the trace headers on every reqwest call |
+//! | `tonic` | `grpc::TraceClientLayer`: a client span and the trace headers on every outgoing gRPC or Connect call, for a tonic channel or a tower-based Connect client |
 //! | `testing` | The `testing` module: `capture()` installs in-memory exporters, to assert on spans and metrics in tests |
 
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
+#[cfg(any(feature = "reqwest", feature = "axum", feature = "tonic"))]
+mod carrier;
 mod context;
 mod error;
+#[cfg(feature = "tonic")]
+#[cfg_attr(docsrs, doc(cfg(feature = "tonic")))]
+pub mod grpc;
 #[cfg(any(feature = "reqwest", feature = "axum"))]
 #[cfg_attr(docsrs, doc(cfg(any(feature = "reqwest", feature = "axum"))))]
 pub mod http;
