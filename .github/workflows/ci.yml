@@ -160,7 +160,7 @@ jobs:
       # Alone, so the workspace's other members don't turn its features on.
       - name: Build sisa-telemetry with each feature
         run: |
-          for features in "" testing prometheus reqwest axum; do
+          for features in "" testing prometheus reqwest axum tonic; do
             cargo check -p sisa-telemetry --features "$features" --locked
           done
 

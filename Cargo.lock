@@ -2294,6 +2294,8 @@ dependencies = [
  "async-trait",
  "axum",
  "http",
+ "http-body-util",
+ "hyper-util",
  "opentelemetry",
  "opentelemetry-appender-tracing",
  "opentelemetry-otlp",

@@ -172,7 +172,8 @@ next.run(request).instrument(span).await
 With the `reqwest` and `axum` features, `http::TracingMiddleware` and `http::TraceLayer` do this,
 with the span names, attributes and duration metrics of the OpenTelemetry conventions.
 `TraceLayer` also serves tonic, through `Server::builder().layer`, and gives gRPC and Connect
-calls the RPC conventions.
+calls the RPC conventions. For outgoing gRPC and Connect calls, the `tonic` feature's
+`grpc::TraceClientLayer` wraps a tonic channel, or any tower-based Connect client, the same way.
 
 ```rust
 let client = reqwest_middleware::ClientBuilder::new(reqwest::Client::new())
@@ -181,6 +182,9 @@ let client = reqwest_middleware::ClientBuilder::new(reqwest::Client::new())
 let app = axum::Router::new()
     .route("/orders", get(list_orders))
     .layer(sisa_telemetry::http::TraceLayer::default());
+let channel = tower::ServiceBuilder::new()
+    .layer(sisa_telemetry::grpc::TraceClientLayer::default())
+    .service(Channel::from_static("http://orders:50051").connect_lazy());
 ```
 
 Test: `a_server_span_continues_the_callers_trace`.

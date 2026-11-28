@@ -8,13 +8,13 @@ use std::{
     time::{Duration, Instant},
 };
 
-use ::http::{HeaderMap, Request, Response};
+use ::http::{Request, Response};
 use axum::extract::MatchedPath;
 use opentelemetry::{KeyValue, metrics::Histogram};
 use sisa_telemetry_core::{instruments, propagation};
 use tracing::{Instrument, field::Empty};
 
-use super::{HeaderExtractor, METER, method_name};
+use crate::carrier::{HeaderExtractor, METER, method_name, rpc_path, rpc_system};
 
 static HTTP_DURATION: LazyLock<Histogram<f64>> = LazyLock::new(|| {
     instruments::duration_histogram(
@@ -98,11 +98,7 @@ enum Call {
 impl Call {
     fn of<B>(request: &Request<B>) -> Self {
         if let Some(system) = rpc_system(request.headers())
-            && let Some((service, method)) = request
-                .uri()
-                .path()
-                .strip_prefix('/')
-                .and_then(|path| path.rsplit_once('/'))
+            && let Some((service, method)) = rpc_path(request.uri().path())
         {
             return Self::Rpc {
                 system,
@@ -214,23 +210,6 @@ impl Call {
             attributes.push(KeyValue::new("error.type", error_type));
         }
         histogram.record(took.as_secs_f64(), &attributes);
-    }
-}
-
-// `grpc` or `connect_rpc` for an RPC request, from its content type and headers.
-fn rpc_system(headers: &HeaderMap) -> Option<&'static str> {
-    let content_type = headers
-        .get(::http::header::CONTENT_TYPE)
-        .and_then(|value| value.to_str().ok())
-        .unwrap_or_default();
-    if content_type.starts_with("application/grpc") {
-        Some("grpc")
-    } else if content_type.starts_with("application/connect+")
-        || headers.contains_key("connect-protocol-version")
-    {
-        Some("connect_rpc")
-    } else {
-        None
     }
 }
 

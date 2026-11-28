@@ -46,6 +46,12 @@ pub mod http {
     pub struct TraceService<S> { /* ... */ } // impl tower::Service<http::Request<B>>
 }
 
+#[cfg(feature = "tonic")]
+pub mod grpc {
+    pub struct TraceClientLayer; // impl tower::Layer<S>, Default
+    pub struct TraceClientService<S> { /* ... */ } // impl tower::Service<http::Request<B>>
+}
+
 #[cfg(feature = "testing")]
 pub mod testing {
     pub fn capture() -> Captured;
@@ -63,6 +69,7 @@ pub mod testing {
 | `TelemetryGuard` | Flushes and shuts the providers down on drop, or with `shutdown(budget)`, where the budget bounds the wait for the spans |
 | `TelemetryError` | Why `init` or `shutdown` failed |
 | Feature `prometheus`: `prometheus_text` | The metrics in the Prometheus text format, for an admin port's `/metrics` handler |
+| Feature `tonic`: `grpc::TraceClientLayer` | A client span on each outgoing gRPC or Connect call, with the trace headers written into the request, for a tonic channel or a tower-based Connect client |
 | Feature `testing`: `testing::capture`, `Captured`, `CapturedMetric`, `CapturedPoint`, `SpanData` | In-memory exporters for tests, as a dev-dependency, and `check_catalog`, which checks the captured metrics against the calling crate's [metric catalog](../formats.md#span-and-metric-names-per-crate) and the shared one |
 
 ## Behaviour
@@ -116,6 +123,14 @@ UNIMPLEMENTED, INTERNAL, UNAVAILABLE or DATA_LOSS, marks the span as an error. A
 sent in trailers after a streamed body isn't read. The RPC metric leaves out `rpc.service` and
 `rpc.method` for UNIMPLEMENTED, since those then come from the caller and are unbounded.
 Durations run until the response headers are ready, not until the body is sent.
+
+`TraceClientLayer` opens a client span per call, named `{service}/{method}` from the request
+path, writes the trace headers of that span into the request, and records
+`rpc.client.call.duration`. `rpc.system` is `connect_rpc` for a request with an
+`application/connect+` content type or a `connect-protocol-version` header, and `grpc`
+otherwise. Any `grpc-status` but OK in the response headers, a Connect response of 400 or more,
+or no response marks the span as an error. As on the server, a `grpc-status` in trailers isn't
+read.
 
 Where an `OTEL_*` variable matches a setting, the variable wins
 ([Formats](../formats.md#settings)). The SDK and the exporters read most of them themselves, but
